@@ -6,3 +6,7 @@
 # logging level
 # LOG_LEVEL = 'info'
 
+# Server Port number
+# PORT = 6000
+
+

@@ -3,6 +3,7 @@ import logging
 import tempfile
 import os
 import json
+import secrets
 
 # we avoid the GIL by using a process to actually keep track of the ids
 from multiprocessing.connection import Listener, Client
@@ -14,10 +15,12 @@ app = Flask(__name__)
 app.config.from_object('config')
 app.logger.setLevel(app.config['LOG_LEVEL'])
 
+auth_key = secrets.token_bytes(16)
+
 import pdb
 #pdb.set_trace()
 
-address = ('localhost', 6000)
+address = ('localhost', app.config['PORT'])
 
 
 try:
@@ -28,22 +31,22 @@ except OSError:
 if pid == 0:
     print('foobar')
     print(unix_socket)
-    with Listener(address) as listener:
+    with Listener(address, authkey = auth_key) as listener:
         while True:
             with listener.accept() as conn:
                 print('connection accepted from', listener.last_accepted)
-                print(conn.recv_bytes())  
+                print(json.loads(conn.recv_bytes()))
     print('barfoo')
     exit()
 
 @app.before_request
 def create_client():
-    request.client = Client(address)
+    print(request.args)
+    request.client = Client(address, authkey = auth_key)
     
-@app.route("/")
-def index():
-    print("index is running!")
-    request.client.send_bytes(json.dumps(request.args).encode())
+@app.route("/red", methods = ['POST'])
+def post_red():
+    request.client.send_bytes(json.dumps(request.json).encode())
     return "Hello world"
 
 if __name__ == '__main__':
