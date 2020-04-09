@@ -51,8 +51,13 @@ def store_ids(data):
         store_id(contact['id'], contact, now)
     return
 
-STORE_COMMAND = 'STORE'
-command_functions = {STORE_COMMAND: store_ids}
+
+def get_ids(data)
+
+GREEN = 'green'
+RED = 'red'
+command_functions = {RED: store_ids,
+                     GREEN : get_ids}
 
 
 

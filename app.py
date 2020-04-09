@@ -21,7 +21,14 @@ def create_client():
 def post_red():
     data = request.json
     logger.info('in POST red: %s' % data)
-    request.client.send([service.STORE_COMMAND, data])
+    request.client.send([service.RED, data])
+    return 'OK'
+
+@app.route("/green", methods = ['POST'])
+def post_red():
+    data = request.json
+    logger.info('in POST red: %s' % data)
+    request.client.send([service.GREEN, data])
     return 'OK'
 
 
