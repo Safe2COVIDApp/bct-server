@@ -15,7 +15,6 @@ service.setup_server(app)
 
 @app.before_request
 def create_client():
-    print(request.args)
     request.client = service.client()
     
 @app.route("/red", methods = ['POST'])
