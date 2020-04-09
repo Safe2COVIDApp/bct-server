@@ -3,6 +3,7 @@
 import logging
 import os
 import json
+import time
 
 os.umask(0o007)
 
@@ -19,33 +20,35 @@ address = None
 
 directory_root = None
 
-ids = set()
+ids = {}
 
 # load_ids reads the file system for all to keep a cache of ids in memory
 def load_ids(directory):
     for root, sub_dirs, files in os.walk(directory):
         for file_name in files:
             if file_name.endswith('.data'):
-                ids.add(file_name)
+                (code, date, extension) = file_name.split('.')
+                ids[code] = date
     return ids
                 
 
 # Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
-def store_id(hex_string, json_data):
+def store_id(hex_string, json_data, now):
     first_level = hex_string[0:2].upper()
     second_level = hex_string[2:4].upper()
     third_level = hex_string[4:6].upper()
     dir_name = "%s/%s/%s/%s" % (directory_root, first_level, second_level, third_level)
-    file_name = "%s/%s.data" % (dir_name, hex_string)
+    file_name = "%s/%s.%s.data" % (dir_name, hex_string, now)
     os.makedirs(dir_name, 0o770)
     with open(file_name, 'w') as file:
         json.dump(json_data, file)
-    ids.add(hex_string)
+    ids[hex_string] = now
     return
 
 def store_ids(data):
+    now = str(int(time.time()))
     for contact in data['contacts']:
-        store_id(contact['id'], contact)
+        store_id(contact['id'], contact, now)
     return
 
 STORE_COMMAND = 'STORE'
@@ -72,6 +75,7 @@ def setup_server(app):
     global address, directory_root
     address = ('localhost', app.config['PORT'])
     directory_root = app.config['DIRECTORY']
+    load_ids(directory_root)
     pid = os.fork()
     if 0 == pid:
         run_server()
