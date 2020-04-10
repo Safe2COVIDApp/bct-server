@@ -23,4 +23,6 @@ https://docs.google.com/document/d/1c390iMNWVMDueZkqfhb7kF0XVQKXfHl5PHIAUu7GgTY/
 # testing client
 
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:5000/red``
+* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "prefixes":[  "234"]}' http://localhost:5000/green``
+
 
