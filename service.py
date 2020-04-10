@@ -4,6 +4,12 @@ import logging
 import os
 import json
 import time
+import datetime
+
+epoch = datetime.datetime.utcfromtimestamp(0)
+
+def unix_time(dt):
+    return int((dt - epoch).total_seconds())
 
 os.umask(0o007)
 
@@ -28,7 +34,7 @@ def load_ids(directory):
         for file_name in files:
             if file_name.endswith('.data'):
                 (code, date, extension) = file_name.split('.')
-                ids[code] = date
+                ids[code] = int(date)
     return ids
                 
 
@@ -39,20 +45,51 @@ def store_id(hex_string, json_data, now):
     third_level = hex_string[4:6].upper()
     dir_name = "%s/%s/%s/%s" % (directory_root, first_level, second_level, third_level)
     file_name = "%s/%s.%s.data" % (dir_name, hex_string, now)
-    os.makedirs(dir_name, 0o770)
+    os.makedirs(dir_name, 0o770, exist_ok = True)
     with open(file_name, 'w') as file:
         json.dump(json_data, file)
     ids[hex_string] = now
     return
 
 def store_ids(data):
-    now = str(int(time.time()))
+    now = int(time.time())
     for contact in data['contacts']:
-        store_id(contact['id'], contact, now)
-    return
+        contact_id = contact['id']
+        if contact_id not in ids:
+            store_id(contact_id, contact, now)
+        else:
+            logger.info('contact id: %s already in system' % contact_id)
+    return {"status": "ok"}
 
-STORE_COMMAND = 'STORE'
-command_functions = {STORE_COMMAND: store_ids}
+
+def get_ids(data):
+    since = data.get('since')
+    ret = {}
+    if since:
+        ret['since'] = since
+        since = int(unix_time(datetime.datetime.strptime(since, "%Y%m%d%H%M")))
+    else:
+        ret['since'] = "197001010000"
+    # for now we ignore since
+    matched_ids = []
+    for prefix in data['prefixes']:
+        # this is completely the wrong datastructure, there are no buckets yet, but we'll add them in another feature
+        prefix_length = len(prefix)
+        for contact_id in ids:
+            if contact_id[0:prefix_length] == prefix:
+                contact_date = ids[contact_id]
+                logger.debug('matched %s, date: %s' % (contact_id, ids[contact_id]))
+                if (not since) or (since <= contact_date):
+                    matched_ids.append(contact_id)
+    ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
+    ret['ids'] = matched_ids
+    return ret
+    
+
+GREEN = 'green'
+RED = 'red'
+command_functions = {RED: store_ids,
+                     GREEN : get_ids}
 
 
 
@@ -60,16 +97,17 @@ command_functions = {STORE_COMMAND: store_ids}
 def run_server():
     with Listener(address, authkey = auth_key) as listener:
         while True:
+            logger.info('about to do accept')
             with listener.accept() as conn:
-                try:
+                try: 
                     data = conn.recv()
                     command = data[0]
                     logger.info('connection accepted from %s, processing command: %s' % (listener.last_accepted, command))
-                    command_functions[command](*data[1:])
-                except:
+                    ret = command_functions[command](*data[1:])
+                except Exception as e:
                     logger.exception('Error in server')
-                    
-
+                    ret = {"error": "Error wile processing"}
+                conn.send([ret])
 
 def setup_server(app):
     global address, directory_root
@@ -78,6 +116,7 @@ def setup_server(app):
     load_ids(directory_root)
     pid = os.fork()
     if 0 == pid:
+        logging.basicConfig(level=app.config['LOG_LEVEL'])
         run_server()
         exit(0)
 
