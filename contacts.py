@@ -42,7 +42,7 @@ class Contacts:
         self.ids[hex_string] = now
         return
 
-    def red(self, data):
+    def red(self, data, args):
         logger.info('in red')
         now = int(time.time())
         for contact in data['contacts']:
@@ -53,7 +53,7 @@ class Contacts:
                 logger.info('contact id: %s already in system' % contact_id)
         return {"status": "ok"}
 
-    def green(self, data):
+    def green(self, data, args):
         since = data.get('since')
         ret = {}
         if since:
@@ -76,3 +76,12 @@ class Contacts:
         ret['ids'] = matched_ids
         return ret
 
+    def sync(self, data, args):
+        since = int(unix_time(datetime.datetime.strptime(args['since'][0].decode(),
+                                                         "%Y%m%d%H%M")))
+        ids = []
+        for contact_id, contact_date in self.ids.items():
+            if contact_date >= since:
+                ids.append(contact_id)
+        return ids
+        
