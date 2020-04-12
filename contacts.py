@@ -18,8 +18,9 @@ logger = logging.getLogger(__name__)
 
 
 class Contacts:
-    def __init__(self, directory_root):
-        self.directory_root = directory_root
+    def __init__(self, config):
+        self.directory_root = config['directory']
+        self.testing = ('True' == config.get('testing', ''))
         self.ids = {}
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
@@ -85,15 +86,27 @@ class Contacts:
         return ret
 
     def sync(self, data, args):
-        since_arg = args['since'][0].decode()
-        since = int(unix_time(datetime.datetime.strptime(since_arg,
+        since = args.get('since')
+        if since:
+            since = since[0].decode()
+        else:
+            since = "197001010000"
+
+        since = int(unix_time(datetime.datetime.strptime(since,
                                                          "%Y%m%d%H%M")))
         contacts = []
         for contact_id, contact_date in self.ids.items():
             if contact_date >= since:
                 contacts.append(self._get_json_blob(contact_id))
         ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
-               'since':since_arg,
+               'since':since,
                'contacts':contacts}
         return ret
+
+    # reset should only be called and allowed if testing
+    def reset(self):
+        if self.testing:
+            logger.info('resetting ids')
+            self.ids = {}
+        return
         
