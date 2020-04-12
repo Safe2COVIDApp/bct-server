@@ -7,8 +7,6 @@ import configparser
 import urllib.request
 
 
-import pdb
-
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
@@ -25,9 +23,8 @@ def get_config():
 
 
 config = get_config()
-pdb.set_trace()
 
-logging.basicConfig(level = config['log_level'])
+logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
