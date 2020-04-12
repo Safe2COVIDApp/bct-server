@@ -31,16 +31,24 @@ class Contacts:
 
     # Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
     def _store_id(self, hex_string, json_data, now):
-        first_level = hex_string[0:2].upper()
-        second_level = hex_string[2:4].upper()
-        third_level = hex_string[4:6].upper()
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
-        file_name = "%s/%s.%s.data" % (dir_name, hex_string, now)
-        os.makedirs(dir_name, 0o770, exist_ok = True)
+        file_name = self._return_file_name(hex_string, date = now)
+        os.makedirs(os.path.dirname(file_name), 0o770, exist_ok = True)
         with open(file_name, 'w') as file:
             json.dump(json_data, file)
         self.ids[hex_string] = now
         return
+
+    def _return_file_name(self, contact_id, date):
+            
+        first_level = contact_id[0:2].upper()
+        second_level = contact_id[2:4].upper()
+        third_level = contact_id[4:6].upper()
+        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
+        return "%s/%s.%s.data" % (dir_name, contact_id, date)
+
+    def _get_json_blob(self, contact_id):
+        file_name = self._return_file_name(contact_id, self.ids[contact_id])
+        return json.load(open(file_name))
 
     def red(self, data, args):
         logger.info('in red')
@@ -82,6 +90,6 @@ class Contacts:
         ids = []
         for contact_id, contact_date in self.ids.items():
             if contact_date >= since:
-                ids.append(contact_id)
+                ids.append(self._get_json_blob(contact_id))
         return ids
         
