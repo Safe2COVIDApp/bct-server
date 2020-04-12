@@ -26,7 +26,7 @@ self_string = uuid.uuid4().hex
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
-    if 'http' == urllib.parse.urlparse(args.config_file).scheme[0:4]:
+    if 'http' == urllib.parse.urlparse(args.config_file).scheme[0:4].lower():
         contents = urllib.request.urlopen(args.config_file).read().decode()
         conf.read_string(contents)
     else:
