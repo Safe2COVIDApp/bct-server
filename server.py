@@ -4,25 +4,28 @@ import logging
 import json
 from contacts import Contacts
 import configparser
+import urllib.request
 
+
+import pdb
 
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
-    file_name = 'config.ini')
     conf.read("config.ini")
     config = conf['DEFAULT']
-    url = config.get('URL')
+    url = config.get('url')
     if url:
-        contents = urllib.request.urlopen(config.URL).read()
+        contents = urllib.request.urlopen(url).read().decode()
         conf = configparser.ConfigParser()
         conf.read_string(contents)
-        for key, value in conf['DEFAULT']:
+        for key, value in conf['DEFAULT'].items():
             config[key] = value
     return config
 
 
 config = get_config()
+pdb.set_trace()
 
 logging.basicConfig(level = config['log_level'])
 logger = logging.getLogger(__name__)
