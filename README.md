@@ -21,6 +21,9 @@ https://docs.google.com/document/d/1c390iMNWVMDueZkqfhb7kF0XVQKXfHl5PHIAUu7GgTY/
 4. ``python server.p [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
 
 # testing client
+* ``pytest tests``
+
+# trying client
 
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/red``
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "prefixes":[  "234"]}' http://localhost:8080/green``
