@@ -1,11 +1,19 @@
-from twisted.web import server, resource
-from twisted.internet import reactor
+from twisted.web import resource, server as twserver
+from twisted.internet import reactor, task
+from twisted.web.client import Agent, readBody
+from twisted.web.http_headers import Headers
+from twisted.python import log
+import os
 import logging
 import json
 from contacts import Contacts
 import configparser
 import urllib.request
+import uuid
 
+
+# self_string is used for syncing from neighbors, to ignore a sync from ourself
+self_string = uuid.uuid4().hex 
 
 # read config file, potentially looking for recursive config files
 def get_config():
@@ -23,20 +31,39 @@ def get_config():
 
 
 config = get_config()
-
+servers_file_name = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
+
+try:
+    servers = json.load(open(servers_file_name))
+    logger.info('read last read date from server neighbors from %s' % servers_file_name)
+except:
+    servers = {}
+if config.get('servers'):
+    for server in config.get('servers').split(','):
+        if server not in servers:
+            servers[server] = '197001010000'
+            
+    servers = {server:'197001010000' for server in config['servers'].split(',')}
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
 
 
 contacts = Contacts(config['directory'])
 
+import pdb
 class Simple(resource.Resource):
     isLeaf = True
 
     def render(self, request):
         logger.info('in render, request: %s, postpath is %s' % (request, request.postpath))
+        x_self_string_headers = request.requestHeaders.getRawHeaders('X-Self-String')
+        if x_self_string_headers and (self_string in x_self_string_headers):
+            logger.info('called by self, returning 302')
+            request.setResponseCode(302)
+            return 'ok'.encode()
+            
         content_type_headers = request.requestHeaders.getRawHeaders('content-type')
         if content_type_headers and ('application/json' in content_type_headers):
             data = json.load(request.content)
@@ -59,7 +86,50 @@ class Simple(resource.Resource):
         return json.dumps(ret).encode('utf-8')
             
 
+def sync_body(body, server):
+    data = json.loads(body)
+    contacts.red(json.loads(body), None)
+    servers[server] = data['now']
+    json.dump(servers, open(servers_file_name, 'w'))
+    logger.info('Response body: %s' % data)
+    return
 
-site = server.Site(Simple())
-reactor.listenTCP(8080, site)
+
+def sync_error(message):
+    logger.error(message)
+    return
+
+def sync_response(response, server):
+    if 302 == response.code:
+        logger.info('got 302 from sync, must be requesting from ourself)')
+        return
+    else:
+        d = readBody(response)
+        d.addCallback(sync_body, server)
+        return d
+
+
+
+def get_data_from_neighbors():
+    logger.info("getting data from neighbors")
+    for server, last_request in servers.items():
+        url = '%s/sync?since=%s' % (server, last_request)
+        logger.info('getting data from %s' % url)
+        agent = Agent(reactor)
+
+        request = agent.request(
+            b'GET',
+            url.encode(),
+            Headers({'User-Agent': ['Twisted Web Client Example'],
+                     'X-Self-String': [self_string]}),
+            None)
+        request.addCallback(sync_response, server)
+        request.addErrback(sync_error)
+    return
+
+l = task.LoopingCall(get_data_from_neighbors)
+l.start(1.0) # call every second
+
+site = twserver.Site(Simple())
+reactor.listenTCP(int(os.environ.get('PORT', 8080)), site)
 reactor.run()

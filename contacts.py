@@ -5,6 +5,7 @@ import os
 import json
 import time
 import datetime
+import pdb
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -85,11 +86,15 @@ class Contacts:
         return ret
 
     def sync(self, data, args):
-        since = int(unix_time(datetime.datetime.strptime(args['since'][0].decode(),
+        since_arg = args['since'][0].decode()
+        since = int(unix_time(datetime.datetime.strptime(since_arg,
                                                          "%Y%m%d%H%M")))
-        ids = []
+        contacts = []
         for contact_id, contact_date in self.ids.items():
             if contact_date >= since:
-                ids.append(self._get_json_blob(contact_id))
-        return ids
+                contacts.append(self._get_json_blob(contact_id))
+        ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
+               'since':since_arg,
+               'contacts':contacts}
+        return ret
         
