@@ -8,27 +8,29 @@ import configparser
 
 # read config file, potentially looking for recursive config files
 def get_config():
-    conf = configparser.configParser()
+    conf = configparser.ConfigParser()
+    file_name = 'config.ini')
     conf.read("config.ini")
     config = conf['DEFAULT']
     url = config.get('URL')
     if url:
         contents = urllib.request.urlopen(config.URL).read()
-        conf = configparser.configParser()
+        conf = configparser.ConfigParser()
         conf.read_string(contents)
         for key, value in conf['DEFAULT']:
             config[key] = value
     return config
 
 
+config = get_config()
 
-logging.basicConfig(level = config.LOG_LEVEL)
+logging.basicConfig(level = config['log_level'])
 logger = logging.getLogger(__name__)
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
 
 
-contacts = Contacts(config.DIRECTORY)
+contacts = Contacts(config['directory'])
 
 class Simple(resource.Resource):
     isLeaf = True
