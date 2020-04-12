@@ -5,7 +5,6 @@ import os
 import json
 import time
 import datetime
-import pdb
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 

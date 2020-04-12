@@ -1,3 +1,5 @@
+import argparse
+
 from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
 from twisted.web.client import Agent, readBody
@@ -12,13 +14,19 @@ import urllib.request
 import uuid
 
 
+parser = argparse.ArgumentParser(description='Run bct server.')
+parser.add_argument('--config_file', default='config.ini',
+                    help='config file name')
+args = parser.parse_args()
+
+
 # self_string is used for syncing from neighbors, to ignore a sync from ourself
 self_string = uuid.uuid4().hex 
 
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
-    conf.read("config.ini")
+    conf.read(args.config_file)
     config = conf['DEFAULT']
     url = config.get('url')
     if url:
@@ -45,14 +53,12 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '197001010000'
             
-    servers = {server:'197001010000' for server in config['servers'].split(',')}
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
 
 
 contacts = Contacts(config['directory'])
 
-import pdb
 class Simple(resource.Resource):
     isLeaf = True
 
@@ -127,9 +133,10 @@ def get_data_from_neighbors():
         request.addErrback(sync_error)
     return
 
-l = task.LoopingCall(get_data_from_neighbors)
-l.start(1.0) # call every second
+if 0 != len(servers):
+    l = task.LoopingCall(get_data_from_neighbors)
+    l.start(int(config.get('neighbor_sync_period', 600.0)))
 
 site = twserver.Site(Simple())
-reactor.listenTCP(int(os.environ.get('PORT', 8080)), site)
+reactor.listenTCP(int(config.get('port', 8080)), site)
 reactor.run()
