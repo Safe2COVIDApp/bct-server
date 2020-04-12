@@ -3,15 +3,34 @@ from twisted.internet import reactor
 import logging
 import json
 from contacts import Contacts
-import config
+import configparser
+import urllib.request
 
-logging.basicConfig(level = config.LOG_LEVEL)
+
+# read config file, potentially looking for recursive config files
+def get_config():
+    conf = configparser.ConfigParser()
+    conf.read("config.ini")
+    config = conf['DEFAULT']
+    url = config.get('url')
+    if url:
+        contents = urllib.request.urlopen(url).read().decode()
+        conf = configparser.ConfigParser()
+        conf.read_string(contents)
+        for key, value in conf['DEFAULT'].items():
+            config[key] = value
+    return config
+
+
+config = get_config()
+
+logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
 
 
-contacts = Contacts(config.DIRECTORY)
+contacts = Contacts(config['directory'])
 
 class Simple(resource.Resource):
     isLeaf = True
