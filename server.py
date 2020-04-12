@@ -3,7 +3,24 @@ from twisted.internet import reactor
 import logging
 import json
 from contacts import Contacts
-import config
+import configparser
+
+
+# read config file, potentially looking for recursive config files
+def get_config():
+    conf = configparser.configParser()
+    conf.read("config.ini")
+    config = conf['DEFAULT']
+    url = config.get('URL')
+    if url:
+        contents = urllib.request.urlopen(config.URL).read()
+        conf = configparser.configParser()
+        conf.read_string(contents)
+        for key, value in conf['DEFAULT']:
+            config[key] = value
+    return config
+
+
 
 logging.basicConfig(level = config.LOG_LEVEL)
 logger = logging.getLogger(__name__)
