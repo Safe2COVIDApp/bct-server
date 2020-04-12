@@ -16,7 +16,7 @@ import uuid
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
-                    help='config file name')
+                    help='config file name, if an http url then the config file contents are fetched over http')
 args = parser.parse_args()
 
 
@@ -26,16 +26,12 @@ self_string = uuid.uuid4().hex
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
-    conf.read(args.config_file)
-    config = conf['DEFAULT']
-    url = config.get('url')
-    if url:
-        contents = urllib.request.urlopen(url).read().decode()
-        conf = configparser.ConfigParser()
+    if 'http' == urllib.parse.urlparse(args.config_file).scheme[0:4]:
+        contents = urllib.request.urlopen(args.config_file).read().decode()
         conf.read_string(contents)
-        for key, value in conf['DEFAULT'].items():
-            config[key] = value
-    return config
+    else:
+        conf.read(args.config_file)
+    return conf['DEFAULT']
 
 
 config = get_config()
@@ -107,7 +103,8 @@ def sync_error(message):
 
 def sync_response(response, server):
     if 302 == response.code:
-        logger.info('got 302 from sync, must be requesting from ourself)')
+        logger.info('got 302 from sync, must be requesting from ourself.  Removing from server list')
+        servers.pop(server)
         return
     else:
         d = readBody(response)
