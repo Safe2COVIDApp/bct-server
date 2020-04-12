@@ -18,7 +18,7 @@ https://docs.google.com/document/d/1c390iMNWVMDueZkqfhb7kF0XVQKXfHl5PHIAUu7GgTY/
 1. install requirements (pip install -r requirements.txt)
 2. copy sample_config.py to config.py
 3. edit config.py
-4. ``python server.py``
+4. ``python server.p [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
 
 # testing client
 
