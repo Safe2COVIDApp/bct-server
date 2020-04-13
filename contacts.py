@@ -17,16 +17,33 @@ os.umask(0o007)
 logger = logging.getLogger(__name__)
 
 
+import pdb
+
+# like a dict but the values can be auto extended, is if you want to set a[B][C] you don't have to initialize B apriori
+class ContactDict(dict):
+
+    def __missing__(self, key):
+        self[key] = ContactDict()
+        return self[key]
+    
+
 class Contacts:
     def __init__(self, config):
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
-        self.ids = {}
+        self.ids = ContactDict()
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
                 if file_name.endswith('.data'):
                     (code, date, extension) = file_name.split('.')
-                    self.ids[code] = int(date)
+                    dirs = root.split('/')[-3:]
+                    contact_dates = self.ids[dirs[0]][dirs[1]][dirs[2]]
+                    date = int(date)
+                    dates = [date]
+                    if code in contact_dates:
+                        dates = contact_dates[code]
+                        dates.append(date)
+                    self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
         return
     
 
@@ -34,33 +51,67 @@ class Contacts:
     def _store_id(self, hex_string, json_data, now):
         file_name = self._return_file_name(hex_string, date = now)
         os.makedirs(os.path.dirname(file_name), 0o770, exist_ok = True)
-        with open(file_name, 'w') as file:
+        with open(file_name., 'w') as file:
             json.dump(json_data, file)
         self.ids[hex_string] = now
         return
 
-    def _return_file_name(self, contact_id, date):
-            
-        first_level = contact_id[0:2].upper()
-        second_level = contact_id[2:4].upper()
-        third_level = contact_id[4:6].upper()
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
-        return "%s/%s.%s.data" % (dir_name, contact_id, date)
+    def _return_contact_keys(self, contact_id):
+        return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
+    
 
-    def _get_json_blob(self, contact_id):
-        file_name = self._return_file_name(contact_id, self.ids[contact_id])
-        return json.load(open(file_name))
+    def _return_file_name(self, contact_id, date):
+
+        
+        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
+        return "%s/%s.%s.data" % (dir_name, contact_id, date).upper()
+
+    def _get_json_blobs(self, contact_id):
+        first_level, second_level, third_level = self._return_contact_keys(contact_id)
+        blobs = []
+        for file_name in os.listdir('%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level)):
+            if file_name.endswith('data'):
+                (code, date, extension) = file_name.split('.')
+                if code == contact_id:
+                    blobs.append(json.load(open('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name).upper())))
+
+        return blobs
+
 
     def red(self, data, args):
         logger.info('in red')
         now = int(time.time())
         for contact in data['contacts']:
             contact_id = contact['id']
+            data = self._get_contact_ids(contact_id)
             if contact_id not in self.ids:
                 self._store_id(contact_id, contact, now)
             else:
                 logger.info('contact id: %s already in system' % contact_id)
         return {"status": "ok"}
+
+    # return all ids that match the prefix
+    def _get_matching_contacts(self, prefix, ids, start_pos = 0):
+        matches = []
+        if start_pos < 6:
+            this_prefix = prefix[start_pos:]
+            if len(this_prefix) >= 2:
+                ids = ids.get(this_prefix[0:2])
+                if ids:
+                    matches = self._get_matching_contacts(prefix, ids, start_pos + 2)
+            else:
+                if 0 == len(this_prefix):
+                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
+                else:
+                    hex_char = this_prefix[0]
+                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
+                for this_prefix in prefixes:
+                    these_ids = ids.get(this_prefix)
+                    if these_ids:
+                        matches = matches + self._get_matching_contacts(prefix, these_ids, start_pos + 2)
+        else:
+            matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
+        return matches
 
     def green(self, data, args):
         since = data.get('since')
@@ -73,7 +124,6 @@ class Contacts:
 
         matched_ids = []
         for prefix in data['prefixes']:
-            # this is completely the wrong datastructure, there are no buckets yet, but we'll add them in another feature
             prefix_length = len(prefix)
             for contact_id in self.ids:
                 if contact_id[0:prefix_length] == prefix:
@@ -97,7 +147,7 @@ class Contacts:
         contacts = []
         for contact_id, contact_date in self.ids.items():
             if contact_date >= since:
-                contacts.append(self._get_json_blob(contact_id))
+                contacts = contacts + self._get_json_blob(contact_id)
         ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
                'since':since,
                'contacts':contacts}

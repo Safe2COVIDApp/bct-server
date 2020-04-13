@@ -51,16 +51,17 @@ class Server():
         third_level = contact_id[4:6].upper()
         dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
         logger.info('in gdfi')
+        matches = []
         try:
             for file_entry in os.scandir(dir_name):
                 file_name = file_entry.name
                 if file_name.endswith('.data'):
                     (code, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        return json.load(open(file_entry.path))
+                        matches.append(json.load(open(file_entry.path)))
         except:
             logger.exception('foo')
-        return None
+        return matches
         
 
 @pytest.fixture(scope = "session")
