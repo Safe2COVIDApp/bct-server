@@ -12,12 +12,15 @@ from contacts import Contacts
 import configparser
 import urllib.request
 import uuid
+import signal
 
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
                     help='config file name, if an http url then the config file contents are fetched over http')
 args = parser.parse_args()
+
+
 
 
 # self_string is used for syncing from neighbors, to ignore a sync from ourself
@@ -35,6 +38,19 @@ def get_config():
 
 
 config = get_config()
+
+contacts = Contacts(config)
+
+def receive_signal(signal_number, frame):
+    logger.warning('Received signal: %s' % signal_number)
+    if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
+        # testing is set
+        logger.info('Testing is set')
+        contacts.reset()
+    return
+
+signal.signal(signal.SIGUSR1, receive_signal)
+
 servers_file_name = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
@@ -52,8 +68,6 @@ if config.get('servers'):
 allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
 
 
-
-contacts = Contacts(config['directory'])
 
 class Simple(resource.Resource):
     isLeaf = True
