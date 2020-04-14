@@ -1,6 +1,6 @@
 
 import logging
-from subprocess import Popen, PIPE
+from subprocess import Popen, PIPE, STDOUT
 from tempfile import TemporaryDirectory
 import socket
 import pytest
@@ -41,6 +41,7 @@ class Server():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
+        #os.kill(19624, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
         logger.info('sent signal to server')
         return
@@ -51,25 +52,25 @@ class Server():
         third_level = contact_id[4:6].upper()
         dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
         logger.info('in gdfi')
+        matches = []
         try:
-            for file_entry in os.scandir(dir_name):
-                file_name = file_entry.name
+            for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
-                    (code, date, extension) = file_name.split('.')
+                    (code, date, ignore, extension) = file_name.split('.')
                     if code == contact_id:
-                        return json.load(open(file_entry.path))
+                        matches.append(json.load(open(dir_name + '/' + file_name)))
         except:
             logger.exception('foo')
-        return None
+        return matches
         
 
 @pytest.fixture(scope = "session")
 def server():
     # setup server
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(('', 0))
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,
-                        sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) | 1)
+        sock.bind(('localhost', 0))
+        #sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,
+        #sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR) | 1)
         port = sock.getsockname()[1]
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
@@ -78,11 +79,14 @@ def server():
         with Popen(['python', 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
             # let's give the server some time to start
             logger.info('waiting for server to startup')
-            time.sleep(0.5)
+            #s = socket.create_connection(('localhost', port), timeout = 5.0)
+            #s.close()
+            time.sleep(2.0)
             logger.info('about to yield')
             #yield 'http://localhost:%s/' % port
             yield Server('http://localhost:%s/' % port, proc, tmp_dir_name)
             logger.info('back from yield')
+            logger.info('before terminate, return code is %s' % proc.returncode)
             proc.terminate()
             for line in proc.stderr.readlines():
                 logger.info('server output: %s' % line)
