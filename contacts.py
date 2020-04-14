@@ -27,8 +27,9 @@ class ContactDict(dict):
 
 
 # contains both the code for the in memory and on disk version of the database
-# The in memory is a four deep hash table where the leaves of the hash are list of dates (for since compares) of when contact data
-# has come in.
+# The in memory is a four deep hash table where the leaves of the hash are:
+#   list of dates (as integersfor since compares) of when contact data# has come in.
+
 
 # for an id "DEADBEEF", the in memory version is stored in self.ids in the element
 # self.ids['DE']['AD']['BE']["DEADBEEF']  for the disk version is is store in a four
