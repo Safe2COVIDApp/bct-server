@@ -5,6 +5,7 @@ import os
 import json
 import time
 import datetime
+import functools
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -35,7 +36,7 @@ class Contacts:
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    (code, date, extension) = file_name.split('.')
+                    (code, date, ignore, extension) = file_name.split('.')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.ids[dirs[0]][dirs[1]][dirs[2]]
                     date = int(date)
@@ -48,33 +49,35 @@ class Contacts:
     
 
     # Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
-    def _store_id(self, hex_string, json_data, now):
-        file_name = self._return_file_name(hex_string, date = now)
-        os.makedirs(os.path.dirname(file_name), 0o770, exist_ok = True)
-        with open(file_name., 'w') as file:
+    def _store_id(self, contact_id, json_data, now):
+        first_level, second_level, third_level = self._return_contact_keys(contact_id)
+        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
+        os.makedirs(dir_name, 0o770, exist_ok = True)
+        with open('%s/%s.%s.%d.data' % (dir_name, contact_id, id(json_data), now), 'w') as file:
             json.dump(json_data, file)
-        self.ids[hex_string] = now
+        try:
+            dates = self.ids[first_level][second_level][third_level].get(contact_id, [])
+        except KeyError:
+            dates = []
+        dates.append(now)
+        self.ids[first_level][second_level][third_level][contact_id] = dates
         return
 
     def _return_contact_keys(self, contact_id):
         return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
     
 
-    def _return_file_name(self, contact_id, date):
-
-        
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
-        return "%s/%s.%s.data" % (dir_name, contact_id, date).upper()
-
-    def _get_json_blobs(self, contact_id):
+    def _get_json_blobs(self, contact_id, since = None):
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
+        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
         blobs = []
-        for file_name in os.listdir('%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level)):
-            if file_name.endswith('data'):
-                (code, date, extension) = file_name.split('.')
-                if code == contact_id:
-                    blobs.append(json.load(open('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name).upper())))
-
+        if os.path.isdir(dir_name):
+            for file_name in os.listdir(dir_name):
+                if file_name.endswith('data'):
+                    (code, date, ignore, extension) = file_name.split('.')
+                    if code == contact_id:
+                        if (not since) or (since <= int(date)):
+                            blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)).upper())))
         return blobs
 
 
@@ -83,11 +86,10 @@ class Contacts:
         now = int(time.time())
         for contact in data['contacts']:
             contact_id = contact['id']
-            data = self._get_contact_ids(contact_id)
-            if contact_id not in self.ids:
-                self._store_id(contact_id, contact, now)
+            if contact in self._get_json_blobs(contact_id):
+                logger.info('contact for id: %s already found, not saving' % contact_id)
             else:
-                logger.info('contact id: %s already in system' % contact_id)
+                self._store_id(contact_id, contact, now)
         return {"status": "ok"}
 
     # return all ids that match the prefix
@@ -124,13 +126,9 @@ class Contacts:
 
         matched_ids = []
         for prefix in data['prefixes']:
-            prefix_length = len(prefix)
-            for contact_id in self.ids:
-                if contact_id[0:prefix_length] == prefix:
-                    contact_date = self.ids[contact_id]
-                    logger.debug('matched %s, date: %s' % (contact_id, self.ids[contact_id]))
-                    if (not since) or (since <= contact_date):
-                        matched_ids.append(contact_id)
+            for contact in self._get_matching_contacts(prefix, self.ids):
+                matched_ids = matched_ids + self._get_json_blobs(contact, since)
+
         ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
         ret['ids'] = matched_ids
         return ret
@@ -145,9 +143,11 @@ class Contacts:
         since = int(unix_time(datetime.datetime.strptime(since,
                                                          "%Y%m%d%H%M")))
         contacts = []
-        for contact_id, contact_date in self.ids.items():
-            if contact_date >= since:
-                contacts = contacts + self._get_json_blob(contact_id)
+        for key1, value1 in self.ids.items():
+            for key2, value2 in self.ids[key1].items():
+                for key3, value3 in self.ids[key1][key2].items():
+                    for contact_id in self.ids[key1][key2][key3].keys():
+                        contacts = contacts + self._get_json_blobs(contact_id, since)
         ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
                'since':since,
                'contacts':contacts}
@@ -157,6 +157,6 @@ class Contacts:
     def reset(self):
         if self.testing:
             logger.info('resetting ids')
-            self.ids = {}
+            self.ids = ContactDict()
         return
         
