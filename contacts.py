@@ -25,11 +25,26 @@ class ContactDict(dict):
         return self[key]
     
 
+
+# contains both the code for the in memory and on disk version of the database
+# The in memory is a four deep hash table where the leaves of the hash are list of dates (for since compares) of when contact data
+# has come in.
+
+# for an id "DEADBEEF", the in memory version is stored in self.ids in the element
+# self.ids['DE']['AD']['BE']["DEADBEEF']  for the disk version is is store in a four
+# level directory structure rooted at config['directory'] in 'DE/AD/BE/DEADBEEF.[DATE].[PSEUDORANDOM].data'
+# [DATE] is the date it gets entered in the system and [PSEUDORANDOM] is used to differential contacts with the same ID that come in at the same time
+# (accuracy is to minutes).  The date strings are 'YYYYMMDDHHmm'
+
 class Contacts:
+
     def __init__(self, config):
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
+        return
+
+    def _load_ids_from_filesystem(self):
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
                 if file_name.endswith('.data'):
@@ -45,7 +60,7 @@ class Contacts:
         return
     
 
-    # Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
+    # used to start JSON_DATA at NOW for CONTACT_ID, if CONTACT_ID has other unique JSON_DATA then a new one will be stored
     def _store_id(self, contact_id, json_data, now):
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
         dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
@@ -60,10 +75,12 @@ class Contacts:
         self.ids[first_level][second_level][third_level][contact_id] = dates
         return
 
+    # get the three levels for both the memory and directory structure
     def _return_contact_keys(self, contact_id):
         return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
     
 
+    # return all contact json contants since SINCE for CONTACT_ID
     def _get_json_blobs(self, contact_id, since = None):
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
         dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
@@ -78,6 +95,7 @@ class Contacts:
         return blobs
 
 
+    # red POST
     def red(self, data, args):
         logger.info('in red')
         now = int(time.time())
@@ -112,6 +130,8 @@ class Contacts:
             matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
         return matches
 
+
+    # green post
     def green(self, data, args):
         since = data.get('since')
         ret = {}
@@ -130,6 +150,7 @@ class Contacts:
         ret['ids'] = matched_ids
         return ret
 
+    # sync get
     def sync(self, data, args):
         since = args.get('since')
         if since:
