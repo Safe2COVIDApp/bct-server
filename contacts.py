@@ -5,7 +5,6 @@ import os
 import json
 import time
 import datetime
-import functools
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -17,8 +16,6 @@ os.umask(0o007)
 
 logger = logging.getLogger(__name__)
 
-
-import pdb
 
 # like a dict but the values can be auto extended, is if you want to set a[B][C] you don't have to initialize B apriori
 class ContactDict(dict):
