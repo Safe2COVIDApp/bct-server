@@ -13,6 +13,14 @@ https://docs.google.com/document/d/1c390iMNWVMDueZkqfhb7kF0XVQKXfHl5PHIAUu7GgTY/
 * On startup the filesystem is traversed to load data (there are various optimizations that can be done to reduce load time, such as checkpointing the local list of contacts
 * Python/Twisted server
 
+# Prerequisits
+
+The geocode support requires the python module Rtree which in turn requires libspatialindex
+
+To install:
+* brew install spatialindex (osx)
+* apt install libspatialindex-dev (ubuntu)
+
 # Running web Server
 
 1. install requirements (pip install -r requirements.txt)

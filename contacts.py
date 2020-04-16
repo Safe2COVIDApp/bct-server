@@ -5,6 +5,8 @@ import os
 import json
 import time
 import datetime
+import rtree
+import pdb
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -24,7 +26,19 @@ class ContactDict(dict):
         self[key] = ContactDict()
         return self[key]
     
+# Rtree flush isn't working, so we are overwriting
+class Index(rtree.index.Index):
+    def __init__(self, file_name):
+        self.file_name = file_name
+        super().__init__(file_name)
+        return
 
+    def flush(self):
+        # slow...
+        self.close()
+        super().__init__(self.file_name)
+        return
+    
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -41,9 +55,11 @@ class Contacts:
 
     def __init__(self, config):
         self.directory_root = config['directory']
+        self.rtree = Index('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
         return
+
 
     def _load_ids_from_filesystem(self):
         for root, sub_dirs, files in os.walk(self.directory_root):
@@ -60,6 +76,10 @@ class Contacts:
                     self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
         return
     
+    def close(self):
+        logging.info('closing rtree index file')
+        self.rtree.close()
+        return
 
     # used to start JSON_DATA at NOW for CONTACT_ID, if CONTACT_ID has other unique JSON_DATA then a new one will be stored
     def _store_id(self, contact_id, json_data, now):
@@ -100,12 +120,36 @@ class Contacts:
     def red(self, data, args):
         logger.info('in red')
         now = int(time.time())
-        for contact in data['contacts']:
+        # first process contacts, then process geocode
+        memo = data.get('memo')
+        update_token = data.get('updatetoken')
+        replaces = data.get('replaces')
+        for contact in data.get('contacts', []):
+            if memo:
+                contact['memo'] = memo
+            if update_token:
+                contact['updatetoken'] = update_token
+            if replaces:
+                contact['replaces'] = replaces
             contact_id = contact['id']
             if contact in self._get_json_blobs(contact_id):
                 logger.info('contact for id: %s already found, not saving' % contact_id)
             else:
                 self._store_id(contact_id, contact, now)
+        for location in data.get('locations', []):
+            lat = float(location['lat'])
+            long = float(location['long'])
+            location['date'] = now
+            if memo:
+                location['memo'] = memo
+            if update_token:
+                location['updatetoken'] = update_token
+            if replaces:
+                location['replaces'] = replaces
+            # make a unique id
+            logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
+            self.rtree.insert(int(lat * long),  (lat, long, lat, long), obj = location)
+            self.rtree.flush()
         return {"status": "ok"}
 
     # return all ids that match the prefix
@@ -142,13 +186,26 @@ class Contacts:
         else:
             ret['since'] = "197001010000"
 
-        matched_ids = []
-        for prefix in data['prefixes']:
-            for contact in self._get_matching_contacts(prefix, self.ids):
-                matched_ids = matched_ids + self._get_json_blobs(contact, since)
+        prefixes = data.get('prefixes')
+        if prefixes:
+            matched_ids = []
+            for prefix in prefixes:
+                for contact in self._get_matching_contacts(prefix, self.ids):
+                    matched_ids = matched_ids + self._get_json_blobs(contact, since)
+            ret['ids'] = matched_ids
 
+        bounding_box = data.get('boundingbox')
+        locations = []
+        if bounding_box:
+            for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
+                location = obj.object
+                if (not since) or (since <= location['date']):
+                    locations.append(location)
+            ret['locations'] = locations
+            
+            
+                                
         ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
-        ret['ids'] = matched_ids
         return ret
 
     # sync get
@@ -167,9 +224,19 @@ class Contacts:
                 for key3, value3 in self.ids[key1][key2].items():
                     for contact_id in self.ids[key1][key2][key3].keys():
                         contacts = contacts + self._get_json_blobs(contact_id, since)
+
+        locations = []
+        for obj in self.rtree.intersection(self.rtree.bounds, objects = True):
+            if (not since) or (since <= obj.object['date']):
+                locations.append(obj.object)
+        
         ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
-               'since':since,
-               'contacts':contacts}
+               'since':since}
+
+        if contacts:
+            ret['contacts'] = contacts
+        if locations:
+            ret['locations'] = locations
         return ret
 
     # reset should only be called and allowed if testing
@@ -177,5 +244,6 @@ class Contacts:
         if self.testing:
             logger.info('resetting ids')
             self.ids = ContactDict()
+            self.rtree = Index('%s/rtree' % self.directory_root)
         return
         
