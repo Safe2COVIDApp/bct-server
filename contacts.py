@@ -6,7 +6,6 @@ import json
 import time
 import datetime
 import rtree
-import pdb
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
