@@ -81,8 +81,6 @@ class Server():
 
 @pytest.fixture(scope = "session")
 def server():
-    yield Server('http://localhost:%s/' % 8080, None, '/Users/dan/tmp')
-    return
     # setup server
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(('localhost', 0))
