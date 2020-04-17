@@ -48,8 +48,8 @@ class Server():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-        #os.kill(53816, SIGUSR1)
-        #self.proc.send_signal(SIGUSR1)
+        self.proc.send_signal(SIGUSR1)
+        #os.kill(55566, SIGUSR1)
         logger.info('sent signal to server')
         return
 
@@ -82,6 +82,8 @@ class Server():
 @pytest.fixture(scope = "session")
 def server():
     # setup server
+    #yield Server('http://localhost:%s/' % 8080, None, '/Users/dan/tmp')
+    #return
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(('localhost', 0))
         #sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,

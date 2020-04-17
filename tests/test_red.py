@@ -27,7 +27,7 @@ def test_red_with_geolocation(server):
                       replaces = "nonce")
     assert resp.status_code == 200
     matches = server.get_data_to_match_hash('hash')
-    assert 1 == len(matches)
+    assert 2 == len(matches)
     assert matches
     return
 
