@@ -13,7 +13,7 @@ import configparser
 import urllib.request
 import uuid
 import signal
-
+import atexit
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -50,6 +50,8 @@ def receive_signal(signal_number, frame):
     return
 
 signal.signal(signal.SIGUSR1, receive_signal)
+
+atexit.register(contacts.close)
 
 servers_file_name = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())

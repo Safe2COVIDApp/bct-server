@@ -11,6 +11,7 @@ import shutil
 from signal import SIGUSR1
 import json
 import os
+import rtree
 logger = logging.getLogger(__name__)
 
 
@@ -27,9 +28,15 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def red(self, contact):
+    def red(self, contacts = None, locations = None, **kwargs):
         logger.info('before red call')
-        req = requests.post(self.url + 'red',  json={  "memo":  {}, "contacts": [ contact ]})
+        data = {}
+        if contacts:
+            data['contacts'] = contacts
+        if locations:
+            data['locations'] = locations
+        data.update(kwargs)
+        req = requests.post(self.url + 'red',  json= data)
         logger.info('after red call')
         return req
 
@@ -41,8 +48,8 @@ class Server():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-        #os.kill(19624, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
+        #os.kill(55566, SIGUSR1)
         logger.info('sent signal to server')
         return
 
@@ -62,11 +69,24 @@ class Server():
         except:
             logger.exception('foo')
         return matches
+
+    def get_data_to_match_hash(self, match_term):
+        idx = rtree.index.Index('/Users/dan/tmp/rtree')
+        matches = []
+        for obj in idx.intersection(idx.bounds, objects = True):
+            if match_term == obj.object['updatetoken']:
+                matches.append(obj.object)
+        return matches
+
+
+    
         
 
 @pytest.fixture(scope = "session")
 def server():
     # setup server
+    #yield Server('http://localhost:%s/' % 8080, None, '/Users/dan/tmp')
+    #return
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(('localhost', 0))
         #sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,
