@@ -72,8 +72,11 @@ class Server():
 
     def get_data_to_match_hash(self, match_term):
         idx = rtree.index.Index('/Users/dan/tmp/rtree')
-        return list(filter(lambda obj: obj['updatetoken'] == match_term,
-                map(lambda obj: obj.object, idx.intersection(idx.bounds, objects = True))))
+        matches = []
+        for obj in idx.intersection(idx.bounds, objects = True):
+            if match_term == obj.object['updatetoken']:
+                matches.append(obj.object)
+        return matches
 
 
     
