@@ -115,9 +115,9 @@ class Contacts:
         return blobs
 
 
-    # red POST
-    def red(self, data, args):
-        logger.info('in red')
+    # send_status POST
+    def send_status(self, data, args):
+        logger.info('in send_statusa')
         now = int(time.time())
         # first process contacts, then process geocode
         memo = data.get('memo')
@@ -175,8 +175,8 @@ class Contacts:
         return matches
 
 
-    # green post
-    def green(self, data, args):
+    # scan_status post
+    def scan_status(self, data, args):
         since = data.get('since')
         ret = {}
         if since:
@@ -225,16 +225,17 @@ class Contacts:
                         contacts = contacts + self._get_json_blobs(contact_id, since)
 
         locations = []
-        for obj in self.rtree.intersection(self.rtree.bounds, objects = True):
-            if (not since) or (since <= obj.object['date']):
-                locations.append(obj.object)
+        if 0 != self.rtree.get_size():
+            for obj in self.rtree.intersection(self.rtree.bounds, objects = True):
+                if (not since) or (since <= obj.object['date']):
+                    locations.append(obj.object)
         
         ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
                'since':since}
 
-        if contacts:
+        if 0 != len(contacts):
             ret['contacts'] = contacts
-        if locations:
+        if 0 != len(locations):
             ret['locations'] = locations
         return ret
 
