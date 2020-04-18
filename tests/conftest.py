@@ -22,6 +22,7 @@ class Server():
         self.url = url
         self.proc = proc
         self.directory = directory
+        self.valid_ids = ['123456']
         return
 
     def sync(self):
