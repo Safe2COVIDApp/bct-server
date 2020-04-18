@@ -21,10 +21,9 @@ def test_send_seq1(server):
     # Bob should see it
     resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ server.locations_box ]).json()
 
-    # TODO-DAN fails from here down because not returning locations see note in scan_status and issue#27
     # TODO-DAN send_status appears not to be storing status on locations so next line fails - see issue#28
 
-    bob_location_alerts = [ i for i in resp['locations'] if ( location_match(server.locations_in[0], i) and (i['status'] > 0)) ]
+    bob_location_alerts = [ i for i in resp['locations'] if ( location_match(server.locations_in[0], i) and (i.get('status',0) > 0)) ]
 
     # TODO-MITRA note the tests below here are not yet tested as fails at this point
     assert len(bob_location_alerts) == 1

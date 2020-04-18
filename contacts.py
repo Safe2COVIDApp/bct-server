@@ -193,19 +193,18 @@ class Contacts:
                     matched_ids = matched_ids + self._get_json_blobs(contact, since)
             ret['ids'] = matched_ids
 
-        want_locations = data.get('locations')
+        # Find any reported locations, inside the requests bounding box.
+        # { locations: [ { minLat...} ] }
+        req_locations = data.get('locations')
         locations = []
-        if want_locations:
-            # TODO DAN - bounding_box is now    { ids, locations: [ { minLat, minLong, maxLat, maxLong } ] } - need iterate over
-            bounding_box = want_locations[0]
-            for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
-                location = obj.object
-                if (not since) or (since <= location['date']):
-                    locations.append(location)
+        if req_locations:
+            for bounding_box in req_locations:
+                for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
+                    location = obj.object
+                    if (not since) or (since <= location['date']):
+                        locations.append(location)
             ret['locations'] = locations
-            
-            
-                                
+
         ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
         return ret
 
