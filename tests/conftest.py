@@ -28,17 +28,23 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def send_status(self, contacts = None, locations = None, **kwargs):
-        logger.info('before send_status call')
+    def _status(self, endpoint_name, contacts, locations, **kwargs):
+        logger.info('before %s call' % endpoint_name)
         data = {}
         if contacts:
             data['contacts'] = contacts
         if locations:
             data['locations'] = locations
         data.update(kwargs)
-        req = requests.post(self.url + 'send_status',  json= data)
-        logger.info('after send_status call')
+        req = requests.post(self.url + endpoint_name,  json= data)
+        logger.info('after %s call' % endpoint_name)
         return req
+
+    def send_status(self, contacts = None, locations = None, **kwargs):
+        return self._status('send_status', contacts, locations, **kwargs)
+
+    def scan_status(self, contacts = None, locations = None, **kwargs):
+        return self._status('scan_status', contacts, locations, **kwargs)
 
     def reset(self):
         logger.info('sending signal to server')

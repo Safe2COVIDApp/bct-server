@@ -185,7 +185,7 @@ class Contacts:
         else:
             ret['since'] = "197001010000"
 
-        prefixes = data.get('prefixes')
+        prefixes = data.get('contact_prefixes')
         if prefixes:
             matched_ids = []
             for prefix in prefixes:

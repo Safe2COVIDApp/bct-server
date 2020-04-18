@@ -34,6 +34,6 @@ To install:
 # trying client
 
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/red``
-* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "prefixes":[  "234"]}' http://localhost:8080/green``
+* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "contact_prefixes":[  "234"]}' http://localhost:8080/green``
 * ``curl -i  http://localhost:8080/sync?since=197001010000``
 
