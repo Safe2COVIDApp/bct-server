@@ -193,10 +193,11 @@ class Contacts:
                     matched_ids = matched_ids + self._get_json_blobs(contact, since)
             ret['ids'] = matched_ids
 
-        # TODO DAN - bounding_box is now    { ids, locations: [ { minLat, minLong, maxLat, maxLong } ] } - need loop over
-        bounding_box = data.get('locations')
+        want_locations = data.get('locations')
         locations = []
-        if bounding_box:
+        if want_locations:
+            # TODO DAN - bounding_box is now    { ids, locations: [ { minLat, minLong, maxLat, maxLong } ] } - need iterate over
+            bounding_box = want_locations[0]
             for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
                 location = obj.object
                 if (not since) or (since <= location['date']):
