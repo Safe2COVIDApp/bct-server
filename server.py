@@ -67,7 +67,7 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '197001010000'
             
-allowable_methods = ['red:POST', 'green:POST', 'sync:GET']
+allowable_methods = ['scan_status:POST', 'send_status:POST', 'sync:GET']
 
 
 

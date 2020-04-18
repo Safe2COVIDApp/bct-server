@@ -28,16 +28,16 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def red(self, contacts = None, locations = None, **kwargs):
-        logger.info('before red call')
+    def send_status(self, contacts = None, locations = None, **kwargs):
+        logger.info('before send_status call')
         data = {}
         if contacts:
             data['contacts'] = contacts
         if locations:
             data['locations'] = locations
         data.update(kwargs)
-        req = requests.post(self.url + 'red',  json= data)
-        logger.info('after red call')
+        req = requests.post(self.url + 'send_status',  json= data)
+        logger.info('after send_status call')
         return req
 
     def reset(self):
@@ -67,7 +67,7 @@ class Server():
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
         except:
-            logger.exception('foo')
+            pass
         return matches
 
     def get_data_to_match_hash(self, match_term):
