@@ -1,4 +1,3 @@
-
 import logging
 from subprocess import Popen, PIPE, STDOUT
 from tempfile import TemporaryDirectory
@@ -14,6 +13,9 @@ import os
 import rtree
 logger = logging.getLogger(__name__)
 
+# TODO-DAN - maybe this should test for existance of /usr/local/bin/python3 and if so use it ?
+python = "python"
+python = "python3" # Will be needed on Macs where python is generally still 2.7.16 on Mojave or earlier
 
 class Server():
     def __init__(self, url, proc, directory):
@@ -77,7 +79,8 @@ class Server():
         return matches
 
     def get_data_to_match_hash(self, match_term):
-        idx = rtree.index.Index('/Users/dan/tmp/rtree')
+        # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
+        idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
             if match_term == obj.object['updatetoken']:
@@ -102,7 +105,7 @@ def server():
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_name = tmp_dir_name + '/config.ini'
         open(config_file_name, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
-        with Popen(['python', 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
+        with Popen([python, 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
             # let's give the server some time to start
             logger.info('waiting for server to startup')
             #s = socket.create_connection(('localhost', port), timeout = 5.0)

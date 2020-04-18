@@ -24,11 +24,13 @@ To install:
 # Running web Server
 
 1. install requirements (pip install -r requirements.txt)
-2. copy sample_config.py to config.py
-3. edit config.py
+2. copy sample_config.ini to config.ini
+3. edit config.ini
 4. ``python server.p [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
 
 # testing client
+* ``pip3 install pytest`` (osx)
+* ``pip install pytest`` (ubuntu)
 * ``pytest tests``
 
 # trying client
