@@ -26,7 +26,7 @@ def test_send_status_with_geolocation(server):
     server.reset()
     updatetoken='hash' # TODO replace with hash function when ready
     replaces='nonce'
-    locations = [{ "lat": 37.773972, "long": -122.431297 }, { "lat": 37.773972, "long": -122.431297 }]
+    locations = [server.locations_in[0], server.locations_out[0]]
     resp = server.send_status(locations = locations, updatetoken =  updatetoken, replaces = replaces)
     assert resp.status_code == 200
     # Now check it made it to the geo files
@@ -38,5 +38,4 @@ def test_send_status_with_geolocation(server):
     # ugh, comparison of list of dicts: https://stackoverflow.com/questions/9845369/comparing-2-lists-consisting-of-dictionaries-with-unique-keys-in-python
     assert set(tuple(sorted(d.items())) for d in matches) == set(tuple(sorted(d.items())) for d in expected)
     return
-
 

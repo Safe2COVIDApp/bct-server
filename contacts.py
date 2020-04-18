@@ -193,7 +193,8 @@ class Contacts:
                     matched_ids = matched_ids + self._get_json_blobs(contact, since)
             ret['ids'] = matched_ids
 
-        bounding_box = data.get('boundingbox')
+        # TODO DAN - bounding_box is now    { ids, locations: [ { minLat, minLong, maxLat, maxLong } ] } - need loop over
+        bounding_box = data.get('locations')
         locations = []
         if bounding_box:
             for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):

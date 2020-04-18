@@ -23,6 +23,9 @@ class Server():
         self.proc = proc
         self.directory = directory
         self.valid_ids = ['123456']
+        self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
+        self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
+        self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
         return
 
     def sync(self):
