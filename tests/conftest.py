@@ -63,8 +63,8 @@ class Server():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
+        #os.kill(60328, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
-        #os.kill(55566, SIGUSR1)
         logger.info('sent signal to server')
         return
 

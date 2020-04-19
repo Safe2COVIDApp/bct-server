@@ -2,9 +2,9 @@ import requests
 
 
 
-def test_scan_status(server):
+def test_scan_status(server, data):
     server.reset()
-    contact_id = server.valid_ids[0]
+    contact_id = data.valid_ids[0]
     prefix = contact_id[0:3]
     data = [{"id":contact_id}]
     server.send_status(contacts = data)
