@@ -24,8 +24,8 @@ def test_send_status(server, data):
 
 def test_send_status_with_geolocation(server, data):
     server.reset()
-    updatetoken='hash' # TODO replace with hash function when ready
-    replaces='nonce'
+    replaces = data.nonces[0] # TODO-MITRA - push down to where used as should change between updates - and check for other similar places used
+    updatetoken=server.hash_nonce(replaces)
     locations = [data.locations_in[0], data.locations_out[0]]
     resp = server.send_status(locations = locations, updatetoken =  updatetoken, replaces = replaces)
     assert resp.status_code == 200

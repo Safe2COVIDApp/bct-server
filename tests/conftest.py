@@ -11,6 +11,7 @@ from signal import SIGUSR1
 import json
 import os
 import rtree
+import hashlib
 logger = logging.getLogger(__name__)
 
 # default to python, but allow override 
@@ -22,6 +23,7 @@ class Data():
         self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
         self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
         self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
+        self.nonces = [ "123456789_0", "123456789_1", "123456789_2" ]
         return
     
 class Server():
@@ -93,6 +95,18 @@ class Server():
             if match_term == obj.object['updatetoken']:
                 matches.append(obj.object)
         return matches
+
+
+    # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
+    # verify(nonce, hashupdates(nonce)) == true;
+    # TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
+    # This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
+    def hash_nonce(self, nonce):
+        return hashlib.sha1(nonce).hexdigest()
+
+    def verify_nonce(self, nonce, updatetoken):
+        return hash_nonce(nonce) == updatetoken
+
 
 
     

@@ -6,6 +6,7 @@ import json
 import time
 import datetime
 import rtree
+import hashlib
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -16,7 +17,6 @@ os.umask(0o007)
 
 
 logger = logging.getLogger(__name__)
-
 
 # like a dict but the values can be auto extended, is if you want to set a[B][C] you don't have to initialize B apriori
 class ContactDict(dict):
@@ -243,4 +243,14 @@ class Contacts:
             self.ids = ContactDict()
             self.rtree = Index('%s/rtree' % self.directory_root)
         return
-        
+
+    # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
+    # verify(nonce, hashupdates(nonce)) == true;
+    # TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
+    # This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
+    def hash_nonce(self, nonce):
+        return hashlib.sha1(nonce).hexdigest()
+
+    def verify_nonce(self, nonce, updatetoken):
+        return hash_nonce(nonce) == updatetoken
+
