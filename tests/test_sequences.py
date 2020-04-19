@@ -23,9 +23,9 @@ def test_send_seq1(server, data):
     bob_location_alerts = [ i for i in resp['locations'] if ( location_match(data.locations_in[0], i) and (i.get('status',0) > 0)) ]
     assert len(bob_location_alerts) == 1
     # Carol sends in an alert for Bob's id
-    unusedResp = server.send_status(contacts = [{'id': bob_id}], status = 2)
+    unusedResp = server.send_status(contacts = [{"id":bob_id}], status = 2)
     # Bob should see it
-    resp = server.scan_status(contact_prefixes=[bob_prefix], locations=[data.locations_box]).json()
+    resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     # TODO-MITRA this fails - check why
     assert len(bob_id_alerts) == 1
