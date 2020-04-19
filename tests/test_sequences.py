@@ -26,7 +26,7 @@ def test_send_seq1(server, data):
     unusedResp = server.send_status(contacts = [{"id":bob_id}], status = 2)
     # Bob should see it
     resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
-    bob_id_alerts = [ i for i in resp['ids'] if (i['id'] == bob_id) ]
+    bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     # TODO-MITRA this fails - check why
     assert len(bob_id_alerts) == 1
     # Alice updates her status to Green

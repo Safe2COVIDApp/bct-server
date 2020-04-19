@@ -29,10 +29,17 @@ To install:
 4. ``python server.p [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
 
 # testing client
-* ``pip3 install pytest`` (osx)
-* ``pip install pytest`` (ubuntu)
-* ``pytest tests``
+On Ubuntu
+```
+pip install pytest
+pytest tests
+```
 
+Or on OSX
+```
+pip3 install pytest
+PYTHON_BIN=python3 pytest tests
+```
 # trying client
 
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/red``
