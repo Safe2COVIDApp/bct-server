@@ -116,20 +116,21 @@ class Contacts:
 
 
     # send_status POST
+    # { locations: [ { minLat, ...} ], contacts: [ { id, ... } ], memo, updatetoken, replaces, status, ... ]
     def send_status(self, data, args):
         logger.info('in send_statusa')
         now = int(time.time())
+
+        repeated_fields = {}
+        # These are fields allowed in the send_status, and just copied from top level into each data point
+        for key in ['memo', 'updatetoken', 'replaces', 'status']:
+            val = data.get(key);
+            if (val):
+                repeated_fields[key] = val
+
         # first process contacts, then process geocode
-        memo = data.get('memo')
-        update_token = data.get('updatetoken')
-        replaces = data.get('replaces')
         for contact in data.get('contacts', []):
-            if memo:
-                contact['memo'] = memo
-            if update_token:
-                contact['updatetoken'] = update_token
-            if replaces:
-                contact['replaces'] = replaces
+            contact.update(repeated_fields)
             contact_id = contact['id']
             if contact in self._get_json_blobs(contact_id):
                 logger.info('contact for id: %s already found, not saving' % contact_id)
@@ -139,12 +140,7 @@ class Contacts:
             lat = float(location['lat'])
             long = float(location['long'])
             location['date'] = now
-            if memo:
-                location['memo'] = memo
-            if update_token:
-                location['updatetoken'] = update_token
-            if replaces:
-                location['replaces'] = replaces
+            location.update(repeated_fields)
             # make a unique id
             logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
             self.rtree.insert(int(lat * long),  (lat, long, lat, long), obj = location)
