@@ -32,7 +32,7 @@ def test_send_seq1(server, data):
     # Alice updates her status to Green
     unusedResp = server.send_status(status = 0, replaces = "nonce")
     resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
-    bob_location_alerts = [ i for i in resp['locations'] if ( location_match(data.locations_in[0], i) and (i.status > 0)) ]
+    bob_location_alerts = [ i for i in resp['locations'] if ( location_match(data.locations_in[0], i) and (i['status'] > 0)) ]
     assert len(bob_location_alerts) == 1
 
 
