@@ -1,4 +1,3 @@
-
 import logging
 from subprocess import Popen, PIPE, STDOUT
 from tempfile import TemporaryDirectory
@@ -14,7 +13,17 @@ import os
 import rtree
 logger = logging.getLogger(__name__)
 
+# default to python, but allow override 
+python = os.environ.get('PYTHON_BIN', 'python')
 
+class Data():
+    def __init__(self):
+        self.valid_ids = ['123456']
+        self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
+        self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
+        self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
+        return
+    
 class Server():
     def __init__(self, url, proc, directory):
         self.url = url
@@ -28,17 +37,23 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def send_status(self, contacts = None, locations = None, **kwargs):
-        logger.info('before send_status call')
+    def _status(self, endpoint_name, contacts, locations, **kwargs):
+        logger.info('before %s call' % endpoint_name)
         data = {}
         if contacts:
             data['contacts'] = contacts
         if locations:
             data['locations'] = locations
         data.update(kwargs)
-        req = requests.post(self.url + 'send_status',  json= data)
-        logger.info('after send_status call')
+        req = requests.post(self.url + endpoint_name,  json= data)
+        logger.info('after %s call' % endpoint_name)
         return req
+
+    def send_status(self, contacts = None, locations = None, **kwargs):
+        return self._status('send_status', contacts, locations, **kwargs)
+
+    def scan_status(self, contacts = None, locations = None, **kwargs):
+        return self._status('scan_status', contacts, locations, **kwargs)
 
     def reset(self):
         logger.info('sending signal to server')
@@ -48,8 +63,8 @@ class Server():
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
+        #os.kill(60328, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
-        #os.kill(55566, SIGUSR1)
         logger.info('sent signal to server')
         return
 
@@ -71,7 +86,8 @@ class Server():
         return matches
 
     def get_data_to_match_hash(self, match_term):
-        idx = rtree.index.Index('/Users/dan/tmp/rtree')
+        # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
+        idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
             if match_term == obj.object['updatetoken']:
@@ -81,6 +97,9 @@ class Server():
 
     
         
+@pytest.fixture(scope = "session")
+def data():
+    return Data()
 
 @pytest.fixture(scope = "session")
 def server():
@@ -96,7 +115,7 @@ def server():
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_name = tmp_dir_name + '/config.ini'
         open(config_file_name, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
-        with Popen(['python', 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
+        with Popen([python, 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
             # let's give the server some time to start
             logger.info('waiting for server to startup')
             #s = socket.create_connection(('localhost', port), timeout = 5.0)

@@ -24,16 +24,18 @@ To install:
 # Running web Server
 
 1. install requirements (pip install -r requirements.txt)
-2. copy sample_config.py to config.py
-3. edit config.py
+2. copy sample_config.ini to config.ini
+3. edit config.ini
 4. ``python server.p [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
 
 # testing client
+* ``pip3 install pytest`` (osx)
+* ``pip install pytest`` (ubuntu)
 * ``pytest tests``
 
 # trying client
 
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/red``
-* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "prefixes":[  "234"]}' http://localhost:8080/green``
+* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "contact_prefixes":[  "234"]}' http://localhost:8080/green``
 * ``curl -i  http://localhost:8080/sync?since=197001010000``
 
