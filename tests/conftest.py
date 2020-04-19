@@ -13,19 +13,22 @@ import os
 import rtree
 logger = logging.getLogger(__name__)
 
-# TODO-DAN - maybe this should test for existance of /usr/local/bin/python3 and if so use it ?
-python = "python"
-python = "python3" # Will be needed on Macs where python is generally still 2.7.16 on Mojave or earlier
+# default to python, but allow override 
+python = os.environ.get('PYTHON_BIN', 'python')
 
+class Data():
+    def __init__(self):
+        self.valid_ids = ['123456']
+        self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
+        self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
+        self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
+        return
+    
 class Server():
     def __init__(self, url, proc, directory):
         self.url = url
         self.proc = proc
         self.directory = directory
-        self.valid_ids = ['123456']
-        self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
-        self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
-        self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
         return
 
     def sync(self):
@@ -94,6 +97,9 @@ class Server():
 
     
         
+@pytest.fixture(scope = "session")
+def data():
+    return Data()
 
 @pytest.fixture(scope = "session")
 def server():
