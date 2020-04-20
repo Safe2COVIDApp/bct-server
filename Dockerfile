@@ -13,8 +13,8 @@ RUN apt-get -yq install apt-utils gcc
 # RUN git --version >/dev/null || apt-get -yq install git
 #If want to ssh into running server (normally don't)
 # RUN ssh -V >/dev/null || apt-get -yq install openssh-server
-# Comment these out when dev complete
-RUN ps || apt-get -yq install procps
+# Uncomment this to aid development
+# RUN ps || apt-get -yq install procps
 
 # Install anything at the OS level, and clean up afterwards
 RUN apt-get -yq install libspatialindex-dev supervisor
