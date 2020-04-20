@@ -1,4 +1,4 @@
-[![CircleCI](https://circleci.com/gh/mitra42/bct-server.svg?style=svg)](https://circleci.com/gh/mitra42/bct-server.svg)
+[![CircleCI](https://circleci.com/gh/mitra42/bct-server.svg?style=svg)](https://circleci.com/gh/mitra42/bct-server)
 
 	
 # bct-server
