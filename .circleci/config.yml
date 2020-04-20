@@ -11,6 +11,7 @@ jobs:
       - python/load-cache
       - run: sudo apt-get install libspatialindex-dev
       - python/install-deps
+      - run: pip install pytest
       - python/save-cache
       - run:
           command: pytest tests
