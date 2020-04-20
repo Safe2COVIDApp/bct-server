@@ -55,6 +55,21 @@ class Server():
     def scan_status(self, contacts = None, locations = None, **kwargs):
         return self._status('scan_status', contacts, locations, **kwargs)
 
+    def admin_status(self):
+        logger.info('before admin_status call')
+        req = requests.get(self.url + 'admin_status')
+        logger.info('after admin_status call')
+        return req
+
+    def admin_config(self):
+        logger.info('before admin_config call')
+        req = requests.get(self.url + 'admin_config')
+        logger.info('after admin_config call')
+        return req
+
+
+
+
     def reset(self):
         logger.info('sending signal to server')
         for file_name in os.listdir(self.directory):
@@ -95,8 +110,6 @@ class Server():
         return matches
 
 
-    
-        
 @pytest.fixture(scope = "session")
 def data():
     return Data()

@@ -245,6 +245,23 @@ class Contacts:
             ret['locations'] = locations
         return ret
 
+    # admin_config get
+    def admin_config(self, data, args):
+        ret = {
+            'directory': self.directory_root,
+            'testing': self.testing
+        }
+        return ret
+
+    # admin_status get
+    def admin_status(self, data, args):
+        ret = {
+            # TODO-36 DAN - how to get some meaningful stat from rtree
+            #'geo_points': self.rtree.count(),
+            'id_len': len(self.ids)
+        }
+        return ret
+
     # reset should only be called and allowed if testing
     def reset(self):
         if self.testing:
