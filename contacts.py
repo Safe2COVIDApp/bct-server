@@ -87,6 +87,10 @@ class Contacts:
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
         dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
         os.makedirs(dir_name, 0o770, exist_ok = True)
+
+        # we add some randomness to the name so we deal with the case of the same contact_id coming in within a minute (which is
+        # the resolution of now
+        
         random_string = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
         file_name = '%s/%s.%s.%d.data' % (dir_name, contact_id, random_string, now)
         logger.info('writing %s to %s' % (json_data, file_name))
