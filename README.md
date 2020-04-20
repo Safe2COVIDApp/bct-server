@@ -1,3 +1,6 @@
+[![CircleCI](https://circleci.com/gh/mitra42/bct-server.svg?style=svg)](https://circleci.com/gh/mitra42/bct-server.svg)
+
+	
 # bct-server
 Bluetooth Contact Tracing for Covid19 - server
 
