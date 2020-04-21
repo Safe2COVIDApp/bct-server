@@ -117,22 +117,23 @@ class Contacts:
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
-                    (code, date, ignore, extension) = file_name.split('.')
+                    (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
+                        foo = time.time()
                         if (not since) or (since <= int(date)):
                             blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)))))
         return blobs
 
 
     # send_status POST
-    # { locations: [ { minLat, ...} ], contacts: [ { id, ... } ], memo, updatetoken, replaces, status, ... ]
+    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
     def send_status(self, data, args):
         logger.info('in send_statusa')
         now = int(time.time())
 
         repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
-        for key in ['memo', 'updatetoken', 'replaces', 'status']:
+        for key in ['memo', 'replaces', 'status']:
             val = data.get(key);
             if (val):
                 repeated_fields[key] = val
@@ -186,9 +187,9 @@ class Contacts:
         ret = {}
         if since:
             ret['since'] = since
-            since = int(unix_time(datetime.datetime.strptime(since, "%Y%m%d%H%M")))
+            since = int(unix_time(datetime.datetime.strptime(since, "%Y%m%d%H%M%S")))
         else:
-            ret['since'] = "197001010000"
+            ret['since'] = "19700101000000"
 
         prefixes = data.get('contact_prefixes')
         if prefixes:
@@ -209,8 +210,9 @@ class Contacts:
                     if (not since) or (since <= location['date']):
                         locations.append(location)
             ret['locations'] = locations
-
-        ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
+            foo = time.time()
+            logger.info("XXX time returning as now =%s" % time.time() )
+        ret['now'] = time.strftime("%Y%m%d%H%M%S", time.gmtime())
         return ret
 
     # sync get
@@ -222,7 +224,7 @@ class Contacts:
             since = "197001010000"
 
         since = int(unix_time(datetime.datetime.strptime(since,
-                                                         "%Y%m%d%H%M")))
+                                                         "%Y%m%d%H%M%S")))
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -236,7 +238,7 @@ class Contacts:
                 if (not since) or (since <= obj.object['date']):
                     locations.append(obj.object)
         
-        ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
+        ret = {'now':time.strftime("%Y%m%d%H%M%S", time.gmtime()),
                'since':since}
 
         if 0 != len(contacts):
@@ -253,13 +255,4 @@ class Contacts:
             self.rtree = Index('%s/rtree' % self.directory_root)
         return
 
-    # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
-    # verify(nonce, hashupdates(nonce)) == true;
-    # TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
-    # This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
-    def hash_nonce(self, nonce):
-        return hashlib.sha1(nonce).hexdigest()
-
-    def verify_nonce(self, nonce, updatetoken):
-        return hash_nonce(nonce) == updatetoken
 

@@ -23,7 +23,6 @@ class Data():
         self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
         self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
         self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
-        self.nonces = [ "123456789_0", "123456789_1", "123456789_2" ]
         return
     
 class Server():
@@ -39,9 +38,19 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def _status(self, endpoint_name, contacts, locations, **kwargs):
+    def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
         logger.info('before %s call' % endpoint_name)
         data = {}
+        if nonce:
+            nexthash = self.hash_nonce(nonce)
+            if contacts:
+                for c in contacts:
+                    c["updatetoken"] = self.fold_hash(nexthash)
+                    nexthash = self.hash_nonce(nonce)
+            if locations:
+                for l in locations:
+                    l["updatetoken"] = self.fold_hash(nexthash)
+                    nexthash = self.hash_nonce(nonce)
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -51,11 +60,11 @@ class Server():
         logger.info('after %s call' % endpoint_name)
         return req
 
-    def send_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('send_status', contacts, locations, **kwargs)
+    def send_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('send_status', nonce, contacts, locations, **kwargs)
 
-    def scan_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('scan_status', contacts, locations, **kwargs)
+    def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('scan_status', nonce, contacts, locations, **kwargs)
 
     def reset(self):
         logger.info('sending signal to server')
@@ -87,13 +96,13 @@ class Server():
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term):
+    def get_data_to_match_hash(self, match_term): # TODO-33 got to be wrong
         # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
         idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
-            if match_term == obj.object['updatetoken']:
-                matches.append(obj.object)
+        #    if match_term == obj.object['updatetoken']:
+            matches.append(obj.object)
         return matches
 
 
@@ -101,16 +110,15 @@ class Server():
     # verify(nonce, hashupdates(nonce)) == true;
     # TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
     # This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
+    def new_nonce(self):
+        return self.hash_nonce("ABCDEFGH")  # TODO-33 this should be a random string, first hash_nonce is to get size same as updates
+
     def hash_nonce(self, nonce):
-        return hashlib.sha1(nonce).hexdigest()
+        return hashlib.sha1(nonce.encode()).hexdigest()
 
-    def verify_nonce(self, nonce, updatetoken):
-        return hash_nonce(nonce) == updatetoken
+    def fold_hash(self, hash):
+        return "%X" % (int(hash[:20], 16) ^ int(hash[20:],16))
 
-
-
-    
-        
 @pytest.fixture(scope = "session")
 def data():
     return Data()
