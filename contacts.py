@@ -7,6 +7,8 @@ import time
 import datetime
 import rtree
 import hashlib
+import string
+import random
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -85,7 +87,14 @@ class Contacts:
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
         dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
         os.makedirs(dir_name, 0o770, exist_ok = True)
-        with open('%s/%s.%s.%d.data' % (dir_name, contact_id, id(json_data), now), 'w') as file:
+
+        # we add some randomness to the name so we deal with the case of the same contact_id coming in within a minute (which is
+        # the resolution of now
+        
+        random_string = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
+        file_name = '%s/%s.%s.%d.data' % (dir_name, contact_id, random_string, now)
+        logger.info('writing %s to %s' % (json_data, file_name))
+        with open(file_name, 'w') as file:
             json.dump(json_data, file)
         try:
             dates = self.ids[first_level][second_level][third_level].get(contact_id, [])
@@ -111,7 +120,7 @@ class Contacts:
                     (code, date, ignore, extension) = file_name.split('.')
                     if code == contact_id:
                         if (not since) or (since <= int(date)):
-                            blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)).upper())))
+                            blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)))))
         return blobs
 
 
