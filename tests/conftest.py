@@ -33,7 +33,7 @@ class Server():
 
     def sync(self):
         logger.info('before sync call')
-        req = requests.get(self.url + 'sync')
+        req = requests.get(self.url + '/sync')
         logger.info('after sync call')
         return req
 
@@ -50,20 +50,20 @@ class Server():
         return req
 
     def send_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('send_status', contacts, locations, **kwargs)
+        return self._status('/status/send', contacts, locations, **kwargs)
 
     def scan_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('scan_status', contacts, locations, **kwargs)
+        return self._status('/status/scan', contacts, locations, **kwargs)
 
     def admin_status(self):
         logger.info('before admin_status call')
-        req = requests.get(self.url + 'admin_status')
+        req = requests.get(self.url + '/admin/status')
         logger.info('after admin_status call')
         return req
 
     def admin_config(self):
         logger.info('before admin_config call')
-        req = requests.get(self.url + 'admin_config')
+        req = requests.get(self.url + '/admin/config')
         logger.info('after admin_config call')
         return req
 
@@ -117,7 +117,7 @@ def data():
 @pytest.fixture(scope = "session")
 def server():
     # setup server
-    #yield Server('http://localhost:%s/' % 8080, None, '/Users/dan/tmp')
+    #yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')
     #return
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(('localhost', 0))
@@ -136,7 +136,7 @@ def server():
             time.sleep(2.0)
             logger.info('about to yield')
             #yield 'http://localhost:%s/' % port
-            yield Server('http://localhost:%s/' % port, proc, tmp_dir_name)
+            yield Server('http://localhost:%s' % port, proc, tmp_dir_name)
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)
             proc.terminate()
