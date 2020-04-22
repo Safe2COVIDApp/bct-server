@@ -67,7 +67,8 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '197001010000'
             
-allowable_methods = ['scan_status:POST', 'send_status:POST', 'sync:GET']
+allowable_methods = ['/status/scan:POST', '/status/send:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
+
 
 
 
@@ -91,11 +92,11 @@ class Simple(resource.Resource):
         # 
         args = {k.decode():[item for item in v] for k,v in request.args.items()}
 
-        path = request.path.decode()[1:]
+        path = request.path.decode()
         logger.info('path is %s' % path)
         request.responseHeaders.addRawHeader(b"content-type", b"application/json")
         if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
-            ret =  getattr(contacts, path)(data, args)
+            ret =  contacts.execute_route(path, data, args)
             logger.info('legal return is %s' % ret)
         else:
             request.setResponseCode(402)

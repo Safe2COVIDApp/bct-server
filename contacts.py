@@ -9,6 +9,7 @@ import rtree
 import hashlib
 import string
 import random
+import functools
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -52,6 +53,26 @@ class Index(rtree.index.Index):
 # [DATE] is the date it gets entered in the system and [PSEUDORANDOM] is used to differential contacts with the same ID that come in at the same time
 # (accuracy is to minutes).  The date strings are 'YYYYMMDDHHmm'
 
+registry = {}
+
+def register_method(_func = None, *, route):
+    def decorator(func):
+        registry[route] = func
+        def wrapper(*args, **kwargs):
+            print('hi')
+            return func(*args, **kwargs)
+        return wrapper
+
+    if _func is None:
+        return decorator
+    else:
+        return decorator(_func)
+
+
+        
+        
+    
+
 class Contacts:
 
     def __init__(self, config):
@@ -59,14 +80,19 @@ class Contacts:
         self.rtree = Index('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
+        self.id_count = 0
+        self._load_ids_from_filesystem()
         return
 
 
+    def execute_route(self, name, *args):
+        return registry[name](self, *args)
+    
     def _load_ids_from_filesystem(self):
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    (code, date, ignore, extension) = file_name.split('.')
+                    (code, ignore, date, extension) = file_name.split('.')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.ids[dirs[0]][dirs[1]][dirs[2]]
                     date = int(date)
@@ -74,6 +100,7 @@ class Contacts:
                     if code in contact_dates:
                         dates = contact_dates[code]
                         dates.append(date)
+                    self.id_count += 1
                     self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
         return
     
@@ -102,6 +129,7 @@ class Contacts:
             dates = []
         dates.append(now)
         self.ids[first_level][second_level][third_level][contact_id] = dates
+        self.id_count += 1
         return
 
     # get the three levels for both the memory and directory structure
@@ -127,6 +155,7 @@ class Contacts:
 
     # send_status POST
     # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
+    @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_statusa')
         now = int(time.time())
@@ -182,6 +211,7 @@ class Contacts:
 
 
     # scan_status post
+    @register_method(route = '/status/scan')
     def scan_status(self, data, args):
         since = data.get('since')
         ret = {}
@@ -216,6 +246,7 @@ class Contacts:
         return ret
 
     # sync get
+    @register_method(route = '/sync')
     def sync(self, data, args):
         since = args.get('since')
         if since:
@@ -245,6 +276,30 @@ class Contacts:
             ret['contacts'] = contacts
         if 0 != len(locations):
             ret['locations'] = locations
+        return ret
+
+    # admin_config get
+    @register_method(route = '/admin/config')
+    def admin_config(self, data, args):
+        ret = {
+            'directory': self.directory_root,
+            'testing': self.testing
+        }
+        return ret
+
+    # admin_status get
+    @register_method(route = '/admin/status')
+    def admin_status(self, data, args):
+        try:
+            geo_points = self.rtree.count(self.rtree.bounds)
+        except:
+            logger.exception('could not compute geopoints, perhaps there are none')
+            geo_points = 0
+        ret = {
+            'bounding_box' : self.rtree.bounds,
+            'geo_points' : geo_points,
+            'contacts_count': self.id_count
+        }
         return ret
 
     # reset should only be called and allowed if testing
