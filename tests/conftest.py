@@ -66,6 +66,9 @@ class Server():
     def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
         return self._status('/status/scan', nonce, contacts, locations, **kwargs)
 
+    def status_update(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        return self._status('/status/update', nonce, None, None, **kwargs)
+
     def admin_status(self):
         logger.info('before admin_status call')
         req = requests.get(self.url + '/admin/status')

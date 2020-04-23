@@ -10,6 +10,7 @@ import hashlib
 import string
 import random
 import functools
+import lib
 
 epoch = datetime.datetime.utcfromtimestamp(0)
 
@@ -27,7 +28,12 @@ class ContactDict(dict):
     def __missing__(self, key):
         self[key] = ContactDict()
         return self[key]
-    
+
+class UpdateTokenIdIdx(dict):
+
+    def store(self, updatetoken, filename):
+        self[updatetoken] = filename
+
 # Rtree flush isn't working, so we are overwriting
 class Index(rtree.index.Index):
     def __init__(self, file_name):
@@ -69,10 +75,6 @@ def register_method(_func = None, *, route):
         return decorator(_func)
 
 
-        
-        
-    
-
 class Contacts:
 
     def __init__(self, config):
@@ -80,6 +82,7 @@ class Contacts:
         self.rtree = Index('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
+        self.updatetoken_id_idx = UpdateTokenIdIdx()
         self.id_count = 0
         self._load_ids_from_filesystem()
         return
@@ -102,6 +105,12 @@ class Contacts:
                         dates.append(date)
                     self.id_count += 1
                     self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
+
+                    # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
+                    blob = json.load(open(('%s/%s/%s/%s/%s' % (directory_root, dirs[0], dirs[1], dirs[2], file_name))))
+                    updatetoken = blob.get('updatetoken', None)
+                    if updatetoken:
+                        self.updatetoken_id_idx.store(updatetoken, file_name)
         return
     
     def close(self):
@@ -130,26 +139,31 @@ class Contacts:
         dates.append(now)
         self.ids[first_level][second_level][third_level][contact_id] = dates
         self.id_count += 1
+        updatetoken = json_data.get('updatetoken')
+        if updatetoken:
+            self.updatetoken_id_idx.store(updatetoken, file_name)
         return
 
     # get the three levels for both the memory and directory structure
     def _return_contact_keys(self, contact_id):
         return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
-    
+
+    # Get the directory name
+    def _return_dir_name(self, contact_id):
+        first_level, second_level, third_level = self._return_contact_keys(contact_id)
+        return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
 
     # return all contact json contants since SINCE for CONTACT_ID
     def _get_json_blobs(self, contact_id, since = None):
-        first_level, second_level, third_level = self._return_contact_keys(contact_id)
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
+        dir_name = self._return_dir_name(contact_id)
         blobs = []
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        foo = time.time()
                         if (not since) or (since <= int(date)):
-                            blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)))))
+                            blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
 
@@ -186,7 +200,36 @@ class Contacts:
             self.rtree.flush()
         return {"status": "ok"}
 
+    # status_update POST
+    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
+    @register_method(route = '/status/update')
+    def status_update(self, data, args):
+        logger.info('in status_update')
+        now = int(time.time())
+
+        nextkey = data.get('replaces') # This is a nonce, that is one before the first key
+        length = data.get('length') # This is how many to replace
+        if length:
+            for i in range(length):
+                nextkey = hash_nonce(nextkey)
+                file_name = self.updatetokens_ids.get(nextkey)
+                if file_name:
+                    (contact_id, ignore, date, extension) = file_name.split('.')
+                    dir_name = self._return_dir_name(contact_id)
+                    json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
+                    json_data.update({ replaces: nextkey, status: data.get('status') }) # SEE-OTHER-ADD-FIELDS
+                    # Note - there is no update token on this record, the updatetoken on the original is what is needed to generate an update to this (for now)
+                    # I can imagine attacks by a compromised primary server on this (generating a second update) but its unclear that
+                    # a compromised promary server can do anything in that process that it couldn't do already.
+                    # Note the replaces token is NOT relayed to secondary servers.
+                    # Store in the structure with the new info
+                    self._store_id(contact_id, json_data, now)
+                #TODO-33 do this over geo points as well
+        return {"status": "ok"}
+
     # return all ids that match the prefix
+    # TODO-33-DAN - why doesnt this use _return_contact_keys rather than recursing ?
+    # TODO-33-DAN - would this be better as a method on Contact_Dict
     def _get_matching_contacts(self, prefix, ids, start_pos = 0):
         matches = []
         if start_pos < 6:
@@ -208,7 +251,6 @@ class Contacts:
         else:
             matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
         return matches
-
 
     # scan_status post
     @register_method(route = '/status/scan')
@@ -248,6 +290,8 @@ class Contacts:
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
+        #TODO-33 also needs to return any "replaces" tokens, or maybe just the result of processing them
+
         since = args.get('since')
         if since:
             since = since[0].decode()
@@ -307,7 +351,6 @@ class Contacts:
         if self.testing:
             logger.info('resetting ids')
             self.ids = ContactDict()
+            self.updatetoken_id_idx = UpdateTokenDict()
             self.rtree = Index('%s/rtree' % self.directory_root)
         return
-
-

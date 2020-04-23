@@ -43,23 +43,24 @@ def test_seq_update_replace(server, data):
     assert len(bob_id_alerts) == 1
     time.sleep(2.0) # Make sure its a new time slot
     # TODO Alice updates new bob with wrong replaces
+    # TODO-33 maybe should be separate command
     nonce2 = server.new_nonce()
-    unusedResp = server.send_status(contacts = [{"id":bob_id}], status = 3, replaces = nonce2)
+    unusedResp = server.status_update(status = 1, replaces = nonce2, length = 1)
     # TODO Bob polls
     r = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ], since = bob_since)
     resp = r.json()
-    bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     bob_since = resp.get('now')
+    bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     assert len(bob_id_alerts) == 1
     time.sleep(2.0) # Make sure its a new time slot
-    # TODO Alice updates bob
+    # TODO Alice updates bob with correct nonce
     nonce2 = server.new_nonce()
-    unusedResp = server.send_status(contacts = [{"id":bob_id}], status = 1, nonce = nonce2)
+    unusedResp = server.status_update(status = 4, nonce = nonce2)
     # TODO Bob polls
     resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     bob_replaces = [ x for i in bob_id_alerts if i.get('replaces') ]
-    assert len(bob_id_alerts) == 0 # This migth be wrong, it might be that its the deleted thing we want to catch
+    assert len(bob_id_alerts) == 0 # This might be wrong, it might be that its the deleted thing we want to catch
 
     # TODO Same sequence with locations - or add in above
 
