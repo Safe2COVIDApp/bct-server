@@ -9,7 +9,7 @@ def test_scan_status(server, data):
     data = [{"id":contact_id}]
     server.send_status(contacts = data, status = 2)
     expected = [ { 'id': contact_id, 'status': 2 }]
-    resp = server.scan_status(contact_prefixes = [prefix])
+    resp = server.scan_status(contact_prefixes = [prefix], since = "2007-04-05T14:30Z")
     assert resp.json()['ids'] == expected
     return
 

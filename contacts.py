@@ -12,10 +12,8 @@ import random
 import functools
 from lib import hash_nonce, fold_hash
 
-epoch = datetime.datetime.utcfromtimestamp(0)
-
 def unix_time(dt):
-    return int((dt - epoch).total_seconds())
+    return int(dt.timestamp())
 
 os.umask(0o007)
 
@@ -258,9 +256,9 @@ class Contacts:
         ret = {}
         if since:
             ret['since'] = since
-            since = int(unix_time(datetime.datetime.strptime(since, "%Y%m%d%H%M%S")))
+            since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
         else:
-            ret['since'] = "19700101000000"
+            ret['since'] = "1970-01-01T01:01Z"
 
         prefixes = data.get('contact_prefixes')
         if prefixes:
@@ -281,9 +279,7 @@ class Contacts:
                     if (not since) or (since <= location['date']):
                         locations.append(location)
             ret['locations'] = locations
-            foo = time.time()
-            logger.info("XXX time returning as now =%s" % time.time() )
-        ret['now'] = time.strftime("%Y%m%d%H%M%S", time.gmtime())
+        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         return ret
 
     # sync get
@@ -295,10 +291,9 @@ class Contacts:
         if since:
             since = since[0].decode()
         else:
-            since = "197001010000"
+            since = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.strptime(since,
-                                                         "%Y%m%d%H%M%S")))
+        since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -312,7 +307,7 @@ class Contacts:
                 if (not since) or (since <= obj.object['date']):
                     locations.append(obj.object)
         
-        ret = {'now':time.strftime("%Y%m%d%H%M%S", time.gmtime()),
+        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                'since':since}
 
         if 0 != len(contacts):

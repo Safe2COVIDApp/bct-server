@@ -45,7 +45,7 @@ PYTHON_BIN=python3 pytest tests
 ```
 # trying client
 
-* ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/red``
-* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"202004100523",  "contact_prefixes":[  "234"]}' http://localhost:8080/green``
-* ``curl -i  http://localhost:8080/sync?since=197001010000``
+* ``curl -i -X POST -H "Content-Type: application/json" -d '{  "memo":  {}, "contacts": [     { "id": "2345635"}]}' http://localhost:8080/status/send``
+* ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"2020-04-10T0523Z",  "contact_prefixes":[  "234"]}' http://localhost:8080/status/scan``
+* ``curl -i  http://localhost:8080/sync?since=1970-01-01T0000Z``
 
