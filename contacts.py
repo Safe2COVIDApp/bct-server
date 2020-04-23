@@ -10,10 +10,8 @@ import string
 import random
 import functools
 
-epoch = datetime.datetime.utcfromtimestamp(0)
-
 def unix_time(dt):
-    return int((dt - epoch).total_seconds())
+    return int(dt.timestamp())
 
 os.umask(0o007)
 
@@ -145,7 +143,7 @@ class Contacts:
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
-                    (code, date, ignore, extension) = file_name.split('.')
+                    (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
                         if (not since) or (since <= int(date)):
                             blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)))))
@@ -216,9 +214,9 @@ class Contacts:
         ret = {}
         if since:
             ret['since'] = since
-            since = int(unix_time(datetime.datetime.strptime(since, "%Y%m%d%H%M")))
+            since = int(unix_time(datetime.datetime.fromisoformat('2007-04-05T14:30Z'.replace("Z", "+00:00"))))
         else:
-            ret['since'] = "197001010000"
+            ret['since'] = "1970-01-01T01:01Z"
 
         prefixes = data.get('contact_prefixes')
         if prefixes:
@@ -240,7 +238,7 @@ class Contacts:
                         locations.append(location)
             ret['locations'] = locations
 
-        ret['now'] = time.strftime("%Y%m%d%H%M", time.gmtime())
+        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         return ret
 
     # sync get
@@ -250,10 +248,10 @@ class Contacts:
         if since:
             since = since[0].decode()
         else:
-            since = "197001010000"
+            since = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.strptime(since,
-                                                         "%Y%m%d%H%M")))
+        since = int(unix_time(datetime.datetime.fromisoformat('2007-04-05T14:30Z'.replace("Z", "+00:00"))))
+        
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -267,7 +265,7 @@ class Contacts:
                 if (not since) or (since <= obj.object['date']):
                     locations.append(obj.object)
         
-        ret = {'now':time.strftime("%Y%m%d%H%M", time.gmtime()),
+        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                'since':since}
 
         if 0 != len(contacts):
