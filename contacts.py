@@ -214,7 +214,7 @@ class Contacts:
         ret = {}
         if since:
             ret['since'] = since
-            since = int(unix_time(datetime.datetime.fromisoformat('2007-04-05T14:30Z'.replace("Z", "+00:00"))))
+            since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
         else:
             ret['since'] = "1970-01-01T01:01Z"
 
@@ -250,7 +250,7 @@ class Contacts:
         else:
             since = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.fromisoformat('2007-04-05T14:30Z'.replace("Z", "+00:00"))))
+        since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
         
         contacts = []
         for key1, value1 in self.ids.items():
