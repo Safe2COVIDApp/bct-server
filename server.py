@@ -53,13 +53,13 @@ signal.signal(signal.SIGUSR1, receive_signal)
 
 atexit.register(contacts.close)
 
-servers_file_name = '%s/.servers' % config['directory']
+servers_file_path = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
 
 try:
-    servers = json.load(open(servers_file_name))
-    logger.info('read last read date from server neighbors from %s' % servers_file_name)
+    servers = json.load(open(servers_file_path))
+    logger.info('read last read date from server neighbors from %s' % servers_file_path)
 except:
     servers = {}
 if config.get('servers'):
@@ -109,7 +109,8 @@ def sync_body(body, server):
     data = json.loads(body)
     contacts.red(json.loads(body), None)
     servers[server] = data['now']
-    json.dump(servers, open(servers_file_name, 'w'))
+    #TODO-DAN - this next line is wrong - servers_file_path isn't defined here.
+    json.dump(servers, open(servers_file_path, 'w'))
     logger.info('Response body: %s' % data)
     return
 

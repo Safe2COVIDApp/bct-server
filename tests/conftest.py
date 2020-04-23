@@ -11,7 +11,7 @@ from signal import SIGUSR1
 import json
 import os
 import rtree
-import hashlib
+from lib import hash_nonce, fold_hash
 logger = logging.getLogger(__name__)
 
 # default to python, but allow override 
@@ -42,15 +42,21 @@ class Server():
         logger.info('before %s call' % endpoint_name)
         data = {}
         if nonce:
-            nexthash = self.hash_nonce(nonce)
+            nexthash = hash_nonce(nonce)
             if contacts:
                 for c in contacts:
-                    c["updatetoken"] = self.fold_hash(nexthash)
-                    nexthash = self.hash_nonce(nonce)
+                    c["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nonce)
             if locations:
                 for l in locations:
-                    l["updatetoken"] = self.fold_hash(nexthash)
-                    nexthash = self.hash_nonce(nonce)
+                    l["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nonce)
+            if kwargs.get('replaces'):
+                updatetokens = []
+                for i in range(kwargs.get('length')):
+                    updatetokens.append(fold_hash(nexthash))
+                    nexthash = hash_nonce(nonce)
+                data['updatetokens'] = updatetokens
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -121,19 +127,6 @@ class Server():
         return matches
 
 
-    # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
-    # verify(nonce, hashupdates(nonce)) == true;
-    # TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
-    # This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
-    def new_nonce(self):
-        return self.hash_nonce("ABCDEFGH")  # TODO-33 this should be a random string, first hash_nonce is to get size same as updates
-
-    def hash_nonce(self, nonce):
-        return hashlib.sha1(nonce.encode()).hexdigest()
-
-    def fold_hash(self, hash):
-        return "%X" % (int(hash[:20], 16) ^ int(hash[20:],16))
-
 @pytest.fixture(scope = "session")
 def data():
     return Data()
@@ -150,14 +143,15 @@ def server():
         port = sock.getsockname()[1]
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
-        config_file_name = tmp_dir_name + '/config.ini'
-        open(config_file_name, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
-        with Popen([python, 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
+        config_file_path = tmp_dir_name + '/config.ini'
+        open(config_file_path, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
+        with Popen([python, 'server.py', '--config_file', config_file_path], stderr = PIPE) as proc:
             # let's give the server some time to start
             logger.info('waiting for server to startup')
             #s = socket.create_connection(('localhost', port), timeout = 5.0)
             #s.close()
-            time.sleep(2.0)
+            # Note 2.0 was too short
+            time.sleep(3.0)
             logger.info('about to yield')
             #yield 'http://localhost:%s/' % port
             yield Server('http://localhost:%s' % port, proc, tmp_dir_name)

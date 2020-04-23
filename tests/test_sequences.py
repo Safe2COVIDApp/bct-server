@@ -1,6 +1,7 @@
 import requests
 import time
 import datetime
+from lib import new_nonce, hash_nonce
 
 
 def location_match(here, there):
@@ -33,35 +34,40 @@ def test_seq_update_replace(server, data):
     server.reset()
     bob_id = data.valid_ids[0]
     bob_prefix = bob_id[:3]
-    # TODO Alice adds bob by id as POI/Orange
-    nonce = server.new_nonce()
+    # === Alice adds bob by id as POI/Orange
+    nonce = new_nonce()
     unusedResp = server.send_status(contacts = [{"id":bob_id}], status = 2, nonce = nonce)
-    # TODO Bob polls
+    time.sleep(1.5) # Make sure its a new time slot
+    # === Bob polls
     resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     bob_since = resp.get('now')
     assert len(bob_id_alerts) == 1
-    time.sleep(2.0) # Make sure its a new time slot
-    # TODO Alice updates new bob with wrong replaces
-    # TODO-33 maybe should be separate command
-    nonce2 = server.new_nonce()
-    unusedResp = server.status_update(status = 1, replaces = nonce2, length = 1)
-    # TODO Bob polls
+    assert bob_id_alerts[0].get('status') == 2
+    time.sleep(1.5) # Make sure its a new time slot
+    # === Alice updates new bob with wrong replaces
+    nonce2 = new_nonce()
+    nonce3 = new_nonce()
+    resp = server.status_update(status = 1, nonce = nonce3, replaces = nonce2, length = 1)
+    assert resp.status_code == 200
+    # === Bob polls
     r = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ], since = bob_since)
+    assert r.status_code == 200
     resp = r.json()
     bob_since = resp.get('now')
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
-    assert len(bob_id_alerts) == 1
+    assert len(bob_id_alerts) == 0 # Bob does not see the record from last time.
     time.sleep(2.0) # Make sure its a new time slot
-    # TODO Alice updates bob with correct nonce
-    nonce2 = server.new_nonce()
-    unusedResp = server.status_update(status = 4, nonce = nonce2)
+    # === Alice updates bob with correct nonce
+    resp = server.status_update(status = 4, nonce = nonce3, replaces = nonce, length = 1)
+    assert resp.status_code == 200
     # TODO Bob polls
-    resp = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ]).json()
+    r = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ], since = bob_since)
+    assert resp.status_code == 200
+    resp = r.json()
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
-    bob_replaces = [ x for i in bob_id_alerts if i.get('replaces') ]
-    assert len(bob_id_alerts) == 0 # This might be wrong, it might be that its the deleted thing we want to catch
-
+    assert len(bob_id_alerts) == 1
+    assert bob_id_alerts[0].get('status') == 4
     # TODO Same sequence with locations - or add in above
 
     # TODO Similar idea but using hospital style replacement
