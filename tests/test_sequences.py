@@ -8,7 +8,6 @@ def location_match(here, there):
     return (here['long'] == there['long']) and (here['lat'] == there['lat'])
 
 def test_send_seq1(server, data):
-    # TODO replace hash and nonce in here
     server.reset()
     bob_id = data.valid_ids[0]
     bob_prefix = bob_id[:3]
@@ -61,13 +60,13 @@ def test_seq_update_replace(server, data):
     # === Alice updates bob with correct nonce
     resp = server.status_update(status = 4, nonce = nonce3, replaces = nonce, length = 1)
     assert resp.status_code == 200
-    # TODO Bob polls
+    # === Bob polls
     r = server.scan_status(contact_prefixes = [bob_prefix], locations = [ data.locations_box ], since = bob_since)
     assert resp.status_code == 200
     resp = r.json()
     bob_id_alerts = [ i for i in resp['ids'] if (i.get('id') == bob_id) ]
     assert len(bob_id_alerts) == 1
     assert bob_id_alerts[0].get('status') == 4
-    # TODO Same sequence with locations - or add in above
+    # TODO-33 Same sequence with locations - or add in above
 
-    # TODO Similar idea but using hospital style replacement
+    # TODO-33 Similar idea but using hospital style replacement

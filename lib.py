@@ -7,8 +7,6 @@ import random
 
 # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
 # verify(nonce, hashupdates(nonce)) == true;
-# TODO handling of nonce's still is waiting some decisions e.g. do we forward deleted messages ?
-# This code is duplicated between server and conftest.py - TODO-DAN is there a place they both access we should put this ?
 def new_nonce(seed = None):
     if not seed:
         seed = random_string=''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])

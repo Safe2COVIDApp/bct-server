@@ -117,7 +117,7 @@ class Server():
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term): # TODO-33 got to be wrong
+    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
         # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
         idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
