@@ -46,16 +46,16 @@ class Server():
             if contacts:
                 for c in contacts:
                     c["updatetoken"] = fold_hash(nexthash)
-                    nexthash = hash_nonce(nonce)
+                    nexthash = hash_nonce(nexthash)
             if locations:
                 for l in locations:
                     l["updatetoken"] = fold_hash(nexthash)
-                    nexthash = hash_nonce(nonce)
+                    nexthash = hash_nonce(nexthash)
             if kwargs.get('replaces'):
                 updatetokens = []
                 for i in range(kwargs.get('length')):
                     updatetokens.append(fold_hash(nexthash))
-                    nexthash = hash_nonce(nonce)
+                    nexthash = hash_nonce(nexthash)
                 data['updatetokens'] = updatetokens
         if contacts:
             data['contacts'] = contacts
@@ -69,11 +69,26 @@ class Server():
     def send_status(self, nonce = None, contacts = None, locations = None, **kwargs):
         return self._status('/status/send', nonce, contacts, locations, **kwargs)
 
+    def send_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.send_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
     def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
         return self._status('/status/scan', nonce, contacts, locations, **kwargs)
 
+    def scan_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.scan_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
     def status_update(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
         return self._status('/status/update', nonce, None, None, **kwargs)
+
+    def status_update_json(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        resp = self.status_update(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
 
     def admin_status(self):
         logger.info('before admin_status call')
@@ -118,7 +133,6 @@ class Server():
         return matches
 
     def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
-        # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
         idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):

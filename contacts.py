@@ -10,6 +10,7 @@ import hashlib
 import string
 import random
 import functools
+import copy
 from lib import hash_nonce, fold_hash
 
 def unix_time(dt):
@@ -33,6 +34,10 @@ class UpdateTokenIdIdx(dict):
     def store(self, updatetoken, file_name):
         self[updatetoken] = file_name
 
+class UpdateTokenGeoIdx(dict):
+
+    def store(self, updatetoken, obj):
+        self[updatetoken] = obj
 
 class SpatialIndex():
     def __init__(self, file_path):
@@ -42,18 +47,26 @@ class SpatialIndex():
 
 
     def get_objects_in_bounding_box(self, min_lat, min_long, max_lat, max_long):
-        objects = self.index.intersection((min_lat, min_long, max_lat, max_long), objects = True)
-        return [obj.object for obj in objects]
+        objectss = self.index.intersection((min_lat, min_long, max_lat, max_long), objects = True)  # [ object: [ obj, ob], object: [ obj, obj]]
+        # Flatten array of arrays
+        objs = []
+        for o in objectss:
+            objs.extend(o.object)
+        return objs
 
     def get_objects_at_point(self, lat, long):
-        return get_objects_in_bounding_box(lat, long, lat, long)
+        return self.get_objects_in_bounding_box(lat, long, lat, long)
 
     def append(self, lat, long, obj):
         objects = self.get_objects_at_point(lat, long)
         objects.append(obj)
-        self.insert(int(lat * long),  (lat, long, lat, long), obj = objects)
-        return
-    
+        self.insert(lat, long, obj = objects)
+        return obj
+
+    # Pair of append's return - for now assuming can rely on obj, but that might not be true (requires knowledge of rtree internals)
+    def retrieve(self, ptr):
+        return ptr
+
     def insert(self, lat, long, obj):
         self.index.insert(int(lat * long),  (lat, long, lat, long), obj = obj)
         self.flush()
@@ -80,10 +93,10 @@ class SpatialIndex():
         if 0 != len(self):
             if not bounding_box:
                 bounding_box = self.index.bounds
-            for obj in self.index.intersection(bounding_box, objects = True):
-                yield obj.object
+            for objs in self.index.intersection(bounding_box, objects = True): # [ object: [ obj ] ]
+                for obj in objs.object:
+                    yield obj
         return
-
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -120,14 +133,21 @@ class Contacts:
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
         self.updatetoken_id_idx = UpdateTokenIdIdx()
+        self.updatetoken_geo_idx = UpdateTokenGeoIdx()
         self.id_count = 0
         self._load_ids_from_filesystem()
+        self._load_updatetoken_geo_idx()
         return
 
 
     def execute_route(self, name, *args):
         return registry[name](self, *args)
-    
+
+    def _load_updatetoken_geo_idx(self):
+        for obj in self.spatial_index.map_over_objects():
+            if obj.updatetoken:
+                self.updatetoken_geo_idx.store(obj.updatetoken, obj)
+
     def _load_ids_from_filesystem(self):
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
@@ -182,6 +202,16 @@ class Contacts:
             self.updatetoken_id_idx.store(updatetoken, file_name)
         return
 
+    def _store_geo(self, location):
+        lat = float(location['lat'])
+        long = float(location['long'])
+        # make a unique id
+        logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
+        self.spatial_index.append(lat, long, location)
+        updatetoken = location.get('updatetoken')
+        if updatetoken:
+            self.updatetoken_geo_idx.store(updatetoken, location)
+
     # get the three levels for both the memory and directory structure
     def _return_contact_keys(self, contact_id):
         return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
@@ -228,13 +258,9 @@ class Contacts:
             else:
                 self._store_id(contact_id, contact, now)
         for location in data.get('locations', []):
-            lat = float(location['lat'])
-            long = float(location['long'])
             location['date'] = now
             location.update(repeated_fields)
-            # make a unique id
-            logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
-            self.spatial_index.insert(lat, long, location)
+            self._store_geo(location)
         return {"status": "ok"}
 
     # status_update POST
@@ -250,20 +276,27 @@ class Contacts:
             for i in range(length):
                 updatetokens = data.get('updatetokens',[])
                 nextkey = hash_nonce(nextkey)
+                #TODO-33 Storing this replaces doesn't prove anything - since just folded to make updatetoken
+                updates = {'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop()}  # SEE-OTHER-ADD-FIELDS
                 file_name = self.updatetoken_id_idx.get(fold_hash(nextkey))
                 if file_name:
                     (contact_id, ignore, date, extension) = file_name.split('.')
                     dir_name = self._return_dir_name(contact_id)
                     json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
-                    json_data.update({ 'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop() }) # SEE-OTHER-ADD-FIELDS
+                    json_data.update(updates)
                     # Store in the structure with the new info
                     self._store_id(contact_id, json_data, now)
-                #TODO-33 do this over geo points as well - need some advice from Dan on best way to index into it.
+                else:  # Cannot be filename and geo_obj for same updatetoken
+                    geo_obj = self.updatetoken_geo_idx.get(fold_hash(nextkey))
+                    if geo_obj:
+                        location = copy.deepcopy(geo_obj)
+                        location['date'] = now
+                        location.update(updates)
+                        self._store_geo(location)
         return {"status": "ok"}
 
     # return all ids that match the prefix
-    # TODO-DAN - why doesnt this use _return_contact_keys rather than recursing ?
-    # TODO-DAN - would this be better as a method on Contact_Dict
+    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
     def _get_matching_contacts(self, prefix, ids, start_pos = 0):
         matches = []
         if start_pos < 6:
