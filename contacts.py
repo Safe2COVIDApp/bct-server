@@ -33,19 +33,57 @@ class UpdateTokenIdIdx(dict):
     def store(self, updatetoken, file_name):
         self[updatetoken] = file_name
 
-# Rtree flush isn't working, so we are overwriting
-class Index(rtree.index.Index):
+
+class SpatialIndex():
     def __init__(self, file_path):
         self.file_path = file_path
-        super().__init__(file_path)
+        self.index = rtree.index.Index(file_path)
         return
 
-    def flush(self):
-        # slow...
-        self.close()
-        super().__init__(self.file_path)
+
+    def get_objects_in_bounding_box(self, min_lat, min_long, max_lat, max_long):
+        objects = self.index.intersection((min_lat, min_long, max_lat, max_long), objects = True)
+        return [obj.object for obj in objects]
+
+    def get_objects_at_point(self, lat, long):
+        return get_objects_in_bounding_box(lat, long, lat, long)
+
+    def append(self, lat, long, obj):
+        objects = self.get_objects_at_point(lat, long)
+        objects.append(obj)
+        self.insert(int(lat * long),  (lat, long, lat, long), obj = objects)
         return
     
+    def insert(self, lat, long, obj):
+        self.index.insert(int(lat * long),  (lat, long, lat, long), obj = obj)
+        self.flush()
+        return
+        
+    @property
+    def bounds(self):
+        return self.index.bounds
+    
+    def flush(self):
+        # slow...
+        self.index.close()
+        self.index = rtree.index.Index(self.file_path)
+        return
+
+    def close(self):
+        self.index.close()
+        return
+    
+    def __len__(self):
+        return self.index.get_size()
+
+    def map_over_objects(self, bounding_box = None):
+        if 0 != len(self):
+            if not bounding_box:
+                bounding_box = self.index.bounds
+            for obj in self.index.intersection(bounding_box, objects = True):
+                yield obj.object
+        return
+
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -78,7 +116,7 @@ class Contacts:
 
     def __init__(self, config):
         self.directory_root = config['directory']
-        self.rtree = Index('%s/rtree' % self.directory_root)
+        self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
         self.updatetoken_id_idx = UpdateTokenIdIdx()
@@ -113,8 +151,8 @@ class Contacts:
         return
     
     def close(self):
-        logging.info('closing rtree index file')
-        self.rtree.close()
+        logging.info('closing spatizl index file')
+        self.spatial_index.close()
         return
 
     # used to start JSON_DATA at NOW for CONTACT_ID, if CONTACT_ID has other unique JSON_DATA then a new one will be stored
@@ -196,8 +234,7 @@ class Contacts:
             location.update(repeated_fields)
             # make a unique id
             logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
-            self.rtree.insert(int(lat * long),  (lat, long, lat, long), obj = location)
-            self.rtree.flush()
+            self.spatial_index.insert(lat, long, location)
         return {"status": "ok"}
 
     # status_update POST
@@ -274,8 +311,7 @@ class Contacts:
         locations = []
         if req_locations:
             for bounding_box in req_locations:
-                for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
-                    location = obj.object
+                for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
                     if (not since) or (since <= location['date']):
                         locations.append(location)
             ret['locations'] = locations
@@ -302,10 +338,9 @@ class Contacts:
                         contacts = contacts + self._get_json_blobs(contact_id, since)
 
         locations = []
-        if 0 != self.rtree.get_size():
-            for obj in self.rtree.intersection(self.rtree.bounds, objects = True):
-                if (not since) or (since <= obj.object['date']):
-                    locations.append(obj.object)
+        for obj in self.spatial_index.map_over_objects():
+            if (not since) or (since <= obj['date']):
+                locations.append(obj)
         
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                'since':since}
@@ -328,14 +363,9 @@ class Contacts:
     # admin_status get
     @register_method(route = '/admin/status')
     def admin_status(self, data, args):
-        try:
-            geo_points = self.rtree.count(self.rtree.bounds)
-        except:
-            logger.exception('could not compute geopoints, perhaps there are none')
-            geo_points = 0
         ret = {
-            'bounding_box' : self.rtree.bounds,
-            'geo_points' : geo_points,
+            'bounding_box' : self.spatial_index.bounds,
+            'geo_points' : len(self.spatial_index),
             'contacts_count': self.id_count
         }
         return ret
@@ -346,5 +376,5 @@ class Contacts:
             logger.info('resetting ids')
             self.ids = ContactDict()
             self.updatetoken_id_idx = UpdateTokenIdIdx()
-            self.rtree = Index('%s/rtree' % self.directory_root)
+            self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         return
