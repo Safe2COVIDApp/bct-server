@@ -107,9 +107,8 @@ class Simple(resource.Resource):
 
 def sync_body(body, server):
     data = json.loads(body)
-    contacts.red(json.loads(body), None)
+    contacts.red(json.loads(body), None) # TODO-DAN contacts.red doesnt exist, not sure what it used to do.
     servers[server] = data['now']
-    #TODO-DAN - this next line is wrong - servers_file_path isn't defined here.
     json.dump(servers, open(servers_file_path, 'w'))
     logger.info('Response body: %s' % data)
     return

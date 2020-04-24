@@ -262,8 +262,8 @@ class Contacts:
         return {"status": "ok"}
 
     # return all ids that match the prefix
-    # TODO-33-DAN - why doesnt this use _return_contact_keys rather than recursing ?
-    # TODO-33-DAN - would this be better as a method on Contact_Dict
+    # TODO-DAN - why doesnt this use _return_contact_keys rather than recursing ?
+    # TODO-DAN - would this be better as a method on Contact_Dict
     def _get_matching_contacts(self, prefix, ids, start_pos = 0):
         matches = []
         if start_pos < 6:
