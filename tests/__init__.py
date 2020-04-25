@@ -1,5 +1,5 @@
 import logging
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE
 from tempfile import TemporaryDirectory
 import socket
 import time
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 python = os.environ.get('PYTHON_BIN', 'python')
 
     
-class Server():
+class Server:
     def __init__(self, url, proc, directory):
         self.url = url
         self.proc = proc
@@ -117,7 +117,7 @@ class Server():
         second_level = contact_id[2:4].upper()
         third_level = contact_id[4:6].upper()
         dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
-        logger.info('in gdfi')
+        logger.info('in get_data_from_id')
         matches = []
         try:
             for file_name in os.listdir(dir_name):
@@ -125,12 +125,12 @@ class Server():
                     (code, date, ignore, extension) = file_name.split('.')
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
-        except:
+        except FileNotFoundError:
             pass
         return matches
 
     def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
-        idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
+        idx = rtree.index.Index('%s/rtree' % self.directory) 
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
         #    if match_term == obj.object['updatetoken']:

@@ -1,6 +1,4 @@
-import requests
 import time
-import datetime
 
 def test_send_status(server, data):
     server.reset()

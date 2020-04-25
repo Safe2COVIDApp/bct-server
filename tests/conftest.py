@@ -1,7 +1,6 @@
 import pytest
 from . import run_server
-
-class Data():
+class Data:
     def __init__(self):
         self.valid_ids = ['123456']
         self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]

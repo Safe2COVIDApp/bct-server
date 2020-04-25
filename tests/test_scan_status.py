@@ -1,7 +1,3 @@
-import requests
-
-
-
 def test_scan_status(server, data):
     server.reset()
     contact_id = data.valid_ids[0]
