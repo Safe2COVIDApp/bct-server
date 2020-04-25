@@ -4,8 +4,7 @@ from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
-from twisted.python import log
-import os
+#from twisted.python import log
 import logging
 import json
 from contacts import Contacts
@@ -60,7 +59,7 @@ logger = logging.getLogger(__name__)
 try:
     servers = json.load(open(servers_file_path))
     logger.info('read last read date from server neighbors from %s' % servers_file_path)
-except:
+except:  # TODO-DAN code checker doesn't like such a broad exception catch
     servers = {}
 if config.get('servers'):
     for server in config.get('servers').split(','):
@@ -89,7 +88,7 @@ class Simple(resource.Resource):
         else:
             data = request.content.read()
         logger.info('request content: %s' % data)
-        # 
+        # TODO-DAN code checker says this is shadowing outer-level "args" are you intending to overwrite that variable, and if not maybe rename here ?
         args = {k.decode():[item for item in v] for k,v in request.args.items()}
 
         path = request.path.decode()

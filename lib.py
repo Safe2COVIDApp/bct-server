@@ -9,11 +9,11 @@ import random
 # verify(nonce, hashupdates(nonce)) == true;
 def new_nonce(seed = None):
     if not seed:
-        seed = random_string=''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
+        seed = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
     return hash_nonce(seed)  # first hash_nonce is to get size same as updates
 
 def hash_nonce(nonce):
     return hashlib.sha1(nonce.encode()).hexdigest()
 
-def fold_hash(hash):
-    return "%X" % (int(hash[:20], 16) ^ int(hash[20:],16))
+def fold_hash(hash40):
+    return "%X" % (int(hash40[:20], 16) ^ int(hash40[20:],16))

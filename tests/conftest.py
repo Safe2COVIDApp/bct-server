@@ -1,11 +1,10 @@
 import logging
-from subprocess import Popen, PIPE, STDOUT
+from subprocess import Popen, PIPE
 from tempfile import TemporaryDirectory
 import socket
 import pytest
 import time
 import requests
-import sys
 import shutil
 from signal import SIGUSR1
 import json
@@ -17,7 +16,7 @@ logger = logging.getLogger(__name__)
 # default to python, but allow override 
 python = os.environ.get('PYTHON_BIN', 'python')
 
-class Data():
+class Data:
     def __init__(self):
         self.valid_ids = ['123456']
         self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
@@ -25,7 +24,7 @@ class Data():
         self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
         return
     
-class Server():
+class Server:
     def __init__(self, url, proc, directory):
         self.url = url
         self.proc = proc
@@ -120,7 +119,7 @@ class Server():
         second_level = contact_id[2:4].upper()
         third_level = contact_id[4:6].upper()
         dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
-        logger.info('in gdfi')
+        logger.info('in get_data_from_id')
         matches = []
         try:
             for file_name in os.listdir(dir_name):
@@ -128,12 +127,12 @@ class Server():
                     (code, date, ignore, extension) = file_name.split('.')
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
-        except:
+        except:  # TODO-DAN code checker doesnt like such a broad exception catch
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
-        idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
+    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against update token
+        idx = rtree.index.Index('%s/rtree' % self.directory) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
         #    if match_term == obj.object['updatetoken']:
