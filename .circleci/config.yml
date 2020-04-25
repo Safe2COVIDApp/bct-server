@@ -16,6 +16,8 @@ jobs:
       - run:
           command: pytest tests
           name: Test
+      - slack/status:
+          webhook: webhook
 
 workflows:
   main:
