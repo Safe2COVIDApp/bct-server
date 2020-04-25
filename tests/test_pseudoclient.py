@@ -5,30 +5,43 @@ from lib import new_nonce
 
 logger = logging.getLogger(__name__)
 
+scale1meter = 100000 # Approx this many meters in lat or long
+STATUS_INFECTED = 1
+STATUS_PUI = 2
+STATUS_UNKNOWN = 3
+STATUS_HEALTHY = 4
+
 # Note - 1 meter at the equator (and we start at 0,0) is approx 0.00001 degree of long
 class Client:
 
     def __init__(self, server = None, data = None, **kwargs):
-        self.prefix_length = 4
-        self.id_length = 10
+        self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
+        self.id_length = 32 # How many characters in hex id. Normally would be 128 bits = 32 chars
+        self.safe_distance = 2 # Meters
+
+        # Access generic test functions and data
         self.server = server
         self.data = data;
+
+        # Initialize arrays where we remember things
         self.ids_used = []
-        self.new_id()
-        self.current_location = { 'lat': 0, 'long': 0}
-        self.locations = [self.current_location]
         self.observed_ids = []
-        self.status = 4 # Healthy
-        self.nonce = None  # Nonce on any status that might need updating
         self.location_alerts = []
         self.id_alerts = []
+        self.locations = []
+
+        # Setup initial status
+        self.new_id()
+        self.move_to({ 'lat': 0, 'long': 0})
+        self.status = STATUS_HEALTHY # Healthy
+        self.nonce = None  # Nonce on any status that might need updating
 
     def new_id(self):
         # TODO-50 move to getid method
         self.current_id = "%X" % random.randrange(0, 2**128)
         self.ids_used.append(self.current_id)
 
-    def new_location(self, loc):
+    def move_to(self, loc):
         self.locations.append(loc)
         self.current_location = loc
 
@@ -43,36 +56,50 @@ class Client:
     def _prefixes(self):
         return [ i[:self.prefix_length] for i in self.ids_used ]
 
+    # This is a very crude "_close_to" function, could obviously be much better.
+    def _close_to(self, l, loc):
+        return ( abs(l['lat']-loc['lat'])+abs(l['long']-loc['long']) * scale1meter <= self.safe_distance)
+
+    def _locationmatch(self,loc):
+        return any(self._close_to(l, loc) for l in self.locations)
+
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self.box()])
-        self.id_alerts.extend([i for i in json_data['ids'] if (i.get('id') in self.ids_used)])
-        # TODO-50 replace with a test for within xx meters, and test against all my locations
-        #self.location_alerts.extend([i for i in json_data['locations']
-        #                                if  (i.get('lat') == data.locations_in[0].get('lat')) and
-        #                                   (i.get('long') == data.locations_in[0].get('long'))])
+        new_id_alerts =  [i for i in json_data['ids'] if (i.get('id') in self.ids_used)]
+        new_location_alerts = filter(lambda loc: self._locationmatch(loc), json_data['locations'])
+        self.id_alerts.extend(new_id_alerts)
+        self.location_alerts.extend(new_location_alerts)
+        new_status = min([i['status'] for i in new_id_alerts] + [l['status'] for l in new_location_alerts] + [STATUS_HEALTHY])
+        self.update_status(min(self.status, new_status)) # Correctly handles case of no change
+        # TODO-50 handle replaces before send out report or adjust
 
+    # Simulate broadcasting an id
     def broadcast(self):
         return self.current_id
 
+    # Simulate hearing an id
     def listen(self, id):
         self.observed_ids.append({'id': id})
 
-    def send_status(self):
-        self.nonce = new_nonce()
-        self.server.send_status_json(contacts=self.observed_ids, locations=self.locations, status=self.status, updatetoken=self.nonce)
+    # Send current status to server (on change of status)
+    def update_status(self, new_status):
+        if new_status != self.status: # Its changed
+            replaces = self.nonce # Will be None the first time
+            self.nonce = new_nonce()
+            self.server.send_status_json(contacts=self.observed_ids, locations=self.locations, status=new_status, updatetoken=self.nonce, replaces = replaces)
 
-    def infected(self):
-        self.send_status()
-
+    # Action taken every 15 seconds
     def cron15(self):
-        self.new_id()
+        self.new_id()   # Rotate id
 
-    def cron60(self):
+
+    # Action taken every hour - check for updates
+    def cron_hourly(self):
         self.poll()
 
+    # Randomly move up to a meter in any direction
     def randwalk(self):
-        scale1meter = 100000 # Approx this many meters in lat or long
-        self.new_location({
+        self.move_to({
             'lat': self.current_location.get('lat') + random.randrange(-scale1meter, scale1meter) / scale1meter,
             'long': self.current_location.get('long') + random.randrange(-scale1meter, scale1meter) / scale1meter
         })
@@ -80,7 +107,6 @@ class Client:
     # Simulate what happens when this client "observes" another, i.e. here's its bluetooth
     def observes(self, other):
         self.listen(other.broadcast())
-
 
 def test_pseudoclient_basic(server, data):
     pass
@@ -93,7 +119,7 @@ def test_pseudoclient_work(server, data):
     bob.randwalk()
     alice.observes(bob)
     bob.observes(alice)
-    alice.infected()
-    bob.cron60()  # Bob polls and should see alice
+    alice.update_status(STATUS_INFECTED)
+    bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     logging.info('Completed test_pseudoclient_twopeople')
