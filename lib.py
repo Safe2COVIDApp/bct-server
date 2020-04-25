@@ -9,7 +9,7 @@ import random
 # verify(nonce, hashupdates(nonce)) == true;
 def new_nonce(seed = None):
     if not seed:
-        seed = random_string=''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
+        seed = random_ascii(8)
     return hash_nonce(seed)  # first hash_nonce is to get size same as updates
 
 def hash_nonce(nonce):
@@ -17,3 +17,6 @@ def hash_nonce(nonce):
 
 def fold_hash(hash):
     return "%X" % (int(hash[:20], 16) ^ int(hash[20:],16))
+
+def random_ascii(length):
+    return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
