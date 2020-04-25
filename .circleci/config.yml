@@ -18,6 +18,7 @@ jobs:
           command: python -m pytest tests
           name: Test
       - slack/status:
+          fail_only: false
 
 workflows:
   main:
