@@ -230,7 +230,7 @@ class Contacts:
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        if (not since) or (since <= int(date)):
+                        if (not since) or (since < int(date)):
                             blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
@@ -345,7 +345,7 @@ class Contacts:
         if req_locations:
             for bounding_box in req_locations:
                 for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
-                    if (not since) or (since <= location['date']):
+                    if (not since) or (since < location['date']):
                         locations.append(location)
             ret['locations'] = locations
         ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
