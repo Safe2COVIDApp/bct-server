@@ -113,7 +113,6 @@ def register_method(_func = None, *, route):
     def decorator(func):
         registry[route] = func
         def wrapper(*args, **kwargs):
-            print('hi')
             return func(*args, **kwargs)
         return wrapper
 
@@ -354,13 +353,13 @@ class Contacts:
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
 
-        since = args.get('since')
-        if since:
-            since = since[0].decode()
+        since_string = args.get('since')
+        if since_string:
+            since_string = since_string[0].decode()
         else:
-            since = "1970-01-01T01:01Z"
+            since_string = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
+        since = int(unix_time(datetime.datetime.fromisoformat(since_string.replace("Z", "+00:00"))))
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -374,7 +373,7 @@ class Contacts:
                 locations.append(obj)
         
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-               'since':since}
+               'since':since_string}
 
         if 0 != len(contacts):
             ret['contacts'] = contacts

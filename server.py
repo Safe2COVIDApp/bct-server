@@ -64,7 +64,7 @@ except:  # TODO-DAN code checker doesn't like such a broad exception catch
 if config.get('servers'):
     for server in config.get('servers').split(','):
         if server not in servers:
-            servers[server] = '197001010000'
+            servers[server] = '1970-01-01T00:00Z'
             
 allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
 
@@ -106,7 +106,7 @@ class Simple(resource.Resource):
 
 def sync_body(body, server):
     data = json.loads(body)
-    contacts.red(json.loads(body), None) # TODO-DAN contacts.red doesnt exist, not sure what it used to do.
+    contacts.send_status(json.loads(body), None) 
     servers[server] = data['now']
     json.dump(servers, open(servers_file_path, 'w'))
     logger.info('Response body: %s' % data)

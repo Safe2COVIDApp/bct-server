@@ -1,0 +1,186 @@
+import logging
+from subprocess import Popen, PIPE
+from tempfile import TemporaryDirectory
+import socket
+import time
+import requests
+import sys
+import shutil
+from signal import SIGUSR1
+import json
+import os
+import rtree
+from lib import hash_nonce, fold_hash
+from contextlib import contextmanager
+
+logger = logging.getLogger(__name__)
+
+# default to python, but allow override 
+python = os.environ.get('PYTHON_BIN', 'python')
+
+    
+class Server:
+    def __init__(self, url, proc, directory):
+        self.url = url
+        self.proc = proc
+        self.directory = directory
+        return
+
+    def __str__(self):
+        return "<Server url: %s, directory: %s>" % (self.url, self.directory)
+
+    def sync(self):
+        logger.info('before sync call')
+        req = requests.get(self.url + '/sync')
+        logger.info('after sync call')
+        return req
+
+    def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
+        logger.info('before %s call' % endpoint_name)
+        data = {}
+        if nonce:
+            nexthash = hash_nonce(nonce)
+            if contacts:
+                for c in contacts:
+                    c["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nexthash)
+            if locations:
+                for l in locations:
+                    l["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nexthash)
+            if kwargs.get('replaces'):
+                updatetokens = []
+                for i in range(kwargs.get('length')):
+                    updatetokens.append(fold_hash(nexthash))
+                    nexthash = hash_nonce(nexthash)
+                data['updatetokens'] = updatetokens
+        if contacts:
+            data['contacts'] = contacts
+        if locations:
+            data['locations'] = locations
+        data.update(kwargs)
+        req = requests.post(self.url + endpoint_name,  json= data)
+        logger.info('after %s call' % endpoint_name)
+        return req
+
+    def send_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('/status/send', nonce, contacts, locations, **kwargs)
+
+    def send_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.send_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('/status/scan', nonce, contacts, locations, **kwargs)
+
+    def scan_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.scan_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def status_update(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        return self._status('/status/update', nonce, None, None, **kwargs)
+
+    def status_update_json(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        resp = self.status_update(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def admin_status(self):
+        logger.info('before admin_status call')
+        req = requests.get(self.url + '/admin/status')
+        logger.info('after admin_status call')
+        return req
+
+    def admin_config(self):
+        logger.info('before admin_config call')
+        req = requests.get(self.url + '/admin/config')
+        logger.info('after admin_config call')
+        return req
+
+    def reset(self):
+        logger.info('sending signal to server')
+        for file_name in os.listdir(self.directory):
+            file_path = os.path.join(self.directory, file_name)
+            if os.path.isfile(file_path):
+                os.unlink(file_path)
+            elif os.path.isdir(file_path):
+                shutil.rmtree(file_path)
+        #os.kill(76617, SIGUSR1)
+        self.proc.send_signal(SIGUSR1)
+        logger.info('sent signal to server')
+        return
+
+    def get_data_from_id(self, contact_id):
+        first_level = contact_id[0:2].upper()
+        second_level = contact_id[2:4].upper()
+        third_level = contact_id[4:6].upper()
+        dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
+        logger.info('in get_data_from_id')
+        matches = []
+        try:
+            for file_name in os.listdir(dir_name):
+                if file_name.endswith('.data'):
+                    (code, date, ignore, extension) = file_name.split('.')
+                    if code == contact_id:
+                        matches.append(json.load(open(dir_name + '/' + file_name)))
+        except FileNotFoundError:
+            pass
+        return matches
+
+    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
+        idx = rtree.index.Index('%s/rtree' % self.directory) 
+        matches = []
+        for obj in idx.intersection(idx.bounds, objects = True):
+        #    if match_term == obj.object['updatetoken']:
+            matches.append(obj.object)
+        return matches
+
+
+def get_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(('localhost', 0))
+        return sock.getsockname()[1]
+
+
+# this can be run as a primary server or a secondary one syncing from a primary one
+def run_server(server_urls = None, port = None):
+    # setup server
+    #yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')
+    #return
+    if not port:
+        port = get_free_port()
+    with TemporaryDirectory() as tmp_dir_name:
+        logger.info('created temporary directory %s' % tmp_dir_name)
+        config_file_path = tmp_dir_name + '/config.ini'
+        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port)
+        if server_urls:
+            config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
+        open(config_file_path, 'w').write(config_data)
+        with Popen([python, 'server.py', '--config_file', config_file_path], stderr = PIPE) as proc:
+            logger.info('waiting for server to startup')
+            # let's give the server some time to start
+            # Note 2.0 was too short
+            time.sleep(3.0)
+            logger.info('about to yield')
+            url = 'http://localhost:%s' % port
+            yield Server(url, proc, tmp_dir_name)
+            logger.info('back from yield')
+            logger.info('before terminate, return code is %s' % proc.returncode)
+            proc.terminate()
+            for line in proc.stderr.readlines():
+                logger.info('%s output: %s' % (url, line))
+            logger.info('terminated')
+    return
+
+
+
+@contextmanager
+def run_server_in_context(server_urls = None, port = None):
+    yield from run_server(server_urls = server_urls, port = port)
+
+def sort_list_of_dictionaries(input_list):
+    return set(tuple(sorted(d.items())) for d in input_list)
+
+
