@@ -20,3 +20,4 @@ def fold_hash(hash):
 
 def random_ascii(length):
     return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
+
