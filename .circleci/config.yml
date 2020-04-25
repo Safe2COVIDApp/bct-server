@@ -14,7 +14,7 @@ jobs:
       - run: pip install pytest
       - python/save-cache
       - run:
-          command: pytest tests
+          command: python -m pytest tests
           name: Test
 
 workflows:
