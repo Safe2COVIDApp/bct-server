@@ -11,6 +11,7 @@ from signal import SIGUSR1
 import json
 import os
 import rtree
+from lib import hash_nonce, fold_hash
 logger = logging.getLogger(__name__)
 
 # default to python, but allow override 
@@ -37,9 +38,25 @@ class Server():
         logger.info('after sync call')
         return req
 
-    def _status(self, endpoint_name, contacts, locations, **kwargs):
+    def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
         logger.info('before %s call' % endpoint_name)
         data = {}
+        if nonce:
+            nexthash = hash_nonce(nonce)
+            if contacts:
+                for c in contacts:
+                    c["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nexthash)
+            if locations:
+                for l in locations:
+                    l["updatetoken"] = fold_hash(nexthash)
+                    nexthash = hash_nonce(nexthash)
+            if kwargs.get('replaces'):
+                updatetokens = []
+                for i in range(kwargs.get('length')):
+                    updatetokens.append(fold_hash(nexthash))
+                    nexthash = hash_nonce(nexthash)
+                data['updatetokens'] = updatetokens
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -49,11 +66,29 @@ class Server():
         logger.info('after %s call' % endpoint_name)
         return req
 
-    def send_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('/status/send', contacts, locations, **kwargs)
+    def send_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('/status/send', nonce, contacts, locations, **kwargs)
 
-    def scan_status(self, contacts = None, locations = None, **kwargs):
-        return self._status('/status/scan', contacts, locations, **kwargs)
+    def send_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.send_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+        return self._status('/status/scan', nonce, contacts, locations, **kwargs)
+
+    def scan_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
+        resp = self.scan_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
+
+    def status_update(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        return self._status('/status/update', nonce, None, None, **kwargs)
+
+    def status_update_json(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+        resp = self.status_update(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+        assert resp.status_code == 200
+        return resp.json()
 
     def admin_status(self):
         logger.info('before admin_status call')
@@ -66,9 +101,6 @@ class Server():
         req = requests.get(self.url + '/admin/config')
         logger.info('after admin_config call')
         return req
-
-
-
 
     def reset(self):
         logger.info('sending signal to server')
@@ -100,13 +132,12 @@ class Server():
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term):
-        # TODO-DAN I don't think this was right and it looks like its really in directory/rtree but that was a lucky guess - so wanted to check.
+    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
         idx = rtree.index.Index('%s/rtree' % (self.directory)) # WAS /Users/dan/tmp/rtree')
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
-            if match_term == obj.object['updatetoken']:
-                matches.append(obj.object)
+        #    if match_term == obj.object['updatetoken']:
+            matches.append(obj.object)
         return matches
 
 
@@ -126,14 +157,15 @@ def server():
         port = sock.getsockname()[1]
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
-        config_file_name = tmp_dir_name + '/config.ini'
-        open(config_file_name, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
-        with Popen([python, 'server.py', '--config_file', config_file_name], stderr = PIPE) as proc:
+        config_file_path = tmp_dir_name + '/config.ini'
+        open(config_file_path, 'w').write('[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n' % (tmp_dir_name, port))
+        with Popen([python, 'server.py', '--config_file', config_file_path], stderr = PIPE) as proc:
             # let's give the server some time to start
             logger.info('waiting for server to startup')
             #s = socket.create_connection(('localhost', port), timeout = 5.0)
             #s.close()
-            time.sleep(2.0)
+            # Note 2.0 was too short
+            time.sleep(3.0)
             logger.info('about to yield')
             #yield 'http://localhost:%s/' % port
             yield Server('http://localhost:%s' % port, proc, tmp_dir_name)

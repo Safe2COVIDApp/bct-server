@@ -6,9 +6,12 @@ import json
 import time
 import datetime
 import rtree
+import hashlib
 import string
 import random
 import functools
+import copy
+from lib import hash_nonce, fold_hash
 
 def unix_time(dt):
     return int(dt.timestamp())
@@ -25,20 +28,75 @@ class ContactDict(dict):
     def __missing__(self, key):
         self[key] = ContactDict()
         return self[key]
-    
-# Rtree flush isn't working, so we are overwriting
-class Index(rtree.index.Index):
-    def __init__(self, file_name):
-        self.file_name = file_name
-        super().__init__(file_name)
+
+class UpdateTokenIdIdx(dict):
+
+    def store(self, updatetoken, file_name):
+        self[updatetoken] = file_name
+
+class UpdateTokenGeoIdx(dict):
+
+    def store(self, updatetoken, obj):
+        self[updatetoken] = obj
+
+class SpatialIndex():
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.index = rtree.index.Index(file_path)
         return
 
+
+    def get_objects_in_bounding_box(self, min_lat, min_long, max_lat, max_long):
+        objectss = self.index.intersection((min_lat, min_long, max_lat, max_long), objects = True)  # [ object: [ obj, ob], object: [ obj, obj]]
+        # Flatten array of arrays
+        objs = []
+        for o in objectss:
+            objs.extend(o.object)
+        return objs
+
+    def get_objects_at_point(self, lat, long):
+        return self.get_objects_in_bounding_box(lat, long, lat, long)
+
+    def append(self, lat, long, obj):
+        objects = self.get_objects_at_point(lat, long)
+        objects.append(obj)
+        self.insert(lat, long, obj = objects)
+        return obj
+
+    # Pair of append's return - for now assuming can rely on obj, but that might not be true (requires knowledge of rtree internals)
+    def retrieve(self, ptr):
+        return ptr
+
+    def insert(self, lat, long, obj):
+        self.index.insert(int(lat * long),  (lat, long, lat, long), obj = obj)
+        self.flush()
+        return
+        
+    @property
+    def bounds(self):
+        return self.index.bounds
+    
     def flush(self):
         # slow...
-        self.close()
-        super().__init__(self.file_name)
+        self.index.close()
+        self.index = rtree.index.Index(self.file_path)
+        return
+
+    def close(self):
+        self.index.close()
         return
     
+    def __len__(self):
+        return self.index.get_size()
+
+    def map_over_objects(self, bounding_box = None):
+        if 0 != len(self):
+            if not bounding_box:
+                bounding_box = self.index.bounds
+            for objs in self.index.intersection(bounding_box, objects = True): # [ object: [ obj ] ]
+                for obj in objs.object:
+                    yield obj
+        return
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -67,25 +125,29 @@ def register_method(_func = None, *, route):
         return decorator(_func)
 
 
-        
-        
-    
-
 class Contacts:
 
     def __init__(self, config):
         self.directory_root = config['directory']
-        self.rtree = Index('%s/rtree' % self.directory_root)
+        self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
         self.ids = ContactDict()
+        self.updatetoken_id_idx = UpdateTokenIdIdx()
+        self.updatetoken_geo_idx = UpdateTokenGeoIdx()
         self.id_count = 0
         self._load_ids_from_filesystem()
+        self._load_updatetoken_geo_idx()
         return
 
 
     def execute_route(self, name, *args):
         return registry[name](self, *args)
-    
+
+    def _load_updatetoken_geo_idx(self):
+        for obj in self.spatial_index.map_over_objects():
+            if obj.updatetoken:
+                self.updatetoken_geo_idx.store(obj.updatetoken, obj)
+
     def _load_ids_from_filesystem(self):
         for root, sub_dirs, files in os.walk(self.directory_root):
             for file_name in files:
@@ -100,11 +162,17 @@ class Contacts:
                         dates.append(date)
                     self.id_count += 1
                     self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
+
+                    # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
+                    blob = json.load(open(('%s/%s/%s/%s/%s' % (directory_root, dirs[0], dirs[1], dirs[2], file_name))))
+                    updatetoken = blob.get('updatetoken', None)
+                    if updatetoken:
+                        self.updatetoken_id_idx.store(updatetoken, file_name)
         return
     
     def close(self):
-        logging.info('closing rtree index file')
-        self.rtree.close()
+        logging.info('closing spatizl index file')
+        self.spatial_index.close()
         return
 
     # used to start JSON_DATA at NOW for CONTACT_ID, if CONTACT_ID has other unique JSON_DATA then a new one will be stored
@@ -117,9 +185,10 @@ class Contacts:
         # the resolution of now
         
         random_string = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
-        file_name = '%s/%s.%s.%d.data' % (dir_name, contact_id, random_string, now)
-        logger.info('writing %s to %s' % (json_data, file_name))
-        with open(file_name, 'w') as file:
+        file_name = '%s.%s.%d.data' % (contact_id, random_string, now)
+        file_path = '%s/%s' % (dir_name, file_name)
+        logger.info('writing %s to %s' % (json_data, file_path))
+        with open(file_path, 'w') as file:
             json.dump(json_data, file)
         try:
             dates = self.ids[first_level][second_level][third_level].get(contact_id, [])
@@ -128,17 +197,33 @@ class Contacts:
         dates.append(now)
         self.ids[first_level][second_level][third_level][contact_id] = dates
         self.id_count += 1
+        updatetoken = json_data.get('updatetoken')
+        if updatetoken:
+            self.updatetoken_id_idx.store(updatetoken, file_name)
         return
+
+    def _store_geo(self, location):
+        lat = float(location['lat'])
+        long = float(location['long'])
+        # make a unique id
+        logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
+        self.spatial_index.append(lat, long, location)
+        updatetoken = location.get('updatetoken')
+        if updatetoken:
+            self.updatetoken_geo_idx.store(updatetoken, location)
 
     # get the three levels for both the memory and directory structure
     def _return_contact_keys(self, contact_id):
         return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
-    
+
+    # Get the directory name
+    def _return_dir_name(self, contact_id):
+        first_level, second_level, third_level = self._return_contact_keys(contact_id)
+        return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
 
     # return all contact json contants since SINCE for CONTACT_ID
     def _get_json_blobs(self, contact_id, since = None):
-        first_level, second_level, third_level = self._return_contact_keys(contact_id)
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
+        dir_name = self._return_dir_name(contact_id)
         blobs = []
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
@@ -146,12 +231,12 @@ class Contacts:
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
                         if (not since) or (since <= int(date)):
-                            blobs.append(json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, first_level, second_level, third_level, file_name)))))
+                            blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
 
     # send_status POST
-    # { locations: [ { minLat, ...} ], contacts: [ { id, ... } ], memo, updatetoken, replaces, status, ... ]
+    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_statusa')
@@ -159,7 +244,7 @@ class Contacts:
 
         repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
-        for key in ['memo', 'updatetoken', 'replaces', 'status']:
+        for key in ['memo', 'replaces', 'status']:
             val = data.get(key);
             if (val):
                 repeated_fields[key] = val
@@ -173,17 +258,45 @@ class Contacts:
             else:
                 self._store_id(contact_id, contact, now)
         for location in data.get('locations', []):
-            lat = float(location['lat'])
-            long = float(location['long'])
             location['date'] = now
             location.update(repeated_fields)
-            # make a unique id
-            logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
-            self.rtree.insert(int(lat * long),  (lat, long, lat, long), obj = location)
-            self.rtree.flush()
+            self._store_geo(location)
+        return {"status": "ok"}
+
+    # status_update POST
+    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
+    @register_method(route = '/status/update')
+    def status_update(self, data, args):
+        logger.info('in status_update')
+        now = int(time.time())
+
+        nextkey = data.get('replaces') # This is a nonce, that is one before the first key
+        length = data.get('length') # This is how many to replace
+        if length:
+            for i in range(length):
+                updatetokens = data.get('updatetokens',[])
+                nextkey = hash_nonce(nextkey)
+                #TODO-33 Storing this replaces doesn't prove anything - since just folded to make updatetoken
+                updates = {'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop()}  # SEE-OTHER-ADD-FIELDS
+                file_name = self.updatetoken_id_idx.get(fold_hash(nextkey))
+                if file_name:
+                    (contact_id, ignore, date, extension) = file_name.split('.')
+                    dir_name = self._return_dir_name(contact_id)
+                    json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
+                    json_data.update(updates)
+                    # Store in the structure with the new info
+                    self._store_id(contact_id, json_data, now)
+                else:  # Cannot be filename and geo_obj for same updatetoken
+                    geo_obj = self.updatetoken_geo_idx.get(fold_hash(nextkey))
+                    if geo_obj:
+                        location = copy.deepcopy(geo_obj)
+                        location['date'] = now
+                        location.update(updates)
+                        self._store_geo(location)
         return {"status": "ok"}
 
     # return all ids that match the prefix
+    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
     def _get_matching_contacts(self, prefix, ids, start_pos = 0):
         matches = []
         if start_pos < 6:
@@ -205,7 +318,6 @@ class Contacts:
         else:
             matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
         return matches
-
 
     # scan_status post
     @register_method(route = '/status/scan')
@@ -232,18 +344,18 @@ class Contacts:
         locations = []
         if req_locations:
             for bounding_box in req_locations:
-                for obj in self.rtree.intersection((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), objects = True):
-                    location = obj.object
+                for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
                     if (not since) or (since <= location['date']):
                         locations.append(location)
             ret['locations'] = locations
-
         ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         return ret
 
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
+        # Note that any replaced items will be sent as new items, so there is no need for a seperate list of nonces.
+
         since = args.get('since')
         if since:
             since = since[0].decode()
@@ -251,7 +363,6 @@ class Contacts:
             since = "1970-01-01T01:01Z"
 
         since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
-        
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -260,10 +371,9 @@ class Contacts:
                         contacts = contacts + self._get_json_blobs(contact_id, since)
 
         locations = []
-        if 0 != self.rtree.get_size():
-            for obj in self.rtree.intersection(self.rtree.bounds, objects = True):
-                if (not since) or (since <= obj.object['date']):
-                    locations.append(obj.object)
+        for obj in self.spatial_index.map_over_objects():
+            if (not since) or (since <= obj['date']):
+                locations.append(obj)
         
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                'since':since}
@@ -286,14 +396,9 @@ class Contacts:
     # admin_status get
     @register_method(route = '/admin/status')
     def admin_status(self, data, args):
-        try:
-            geo_points = self.rtree.count(self.rtree.bounds)
-        except:
-            logger.exception('could not compute geopoints, perhaps there are none')
-            geo_points = 0
         ret = {
-            'bounding_box' : self.rtree.bounds,
-            'geo_points' : geo_points,
+            'bounding_box' : self.spatial_index.bounds,
+            'geo_points' : len(self.spatial_index),
             'contacts_count': self.id_count
         }
         return ret
@@ -303,6 +408,6 @@ class Contacts:
         if self.testing:
             logger.info('resetting ids')
             self.ids = ContactDict()
-            self.rtree = Index('%s/rtree' % self.directory_root)
+            self.updatetoken_id_idx = UpdateTokenIdIdx()
+            self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         return
-        

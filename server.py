@@ -53,13 +53,13 @@ signal.signal(signal.SIGUSR1, receive_signal)
 
 atexit.register(contacts.close)
 
-servers_file_name = '%s/.servers' % config['directory']
+servers_file_path = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
 
 try:
-    servers = json.load(open(servers_file_name))
-    logger.info('read last read date from server neighbors from %s' % servers_file_name)
+    servers = json.load(open(servers_file_path))
+    logger.info('read last read date from server neighbors from %s' % servers_file_path)
 except:
     servers = {}
 if config.get('servers'):
@@ -67,7 +67,7 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '197001010000'
             
-allowable_methods = ['/status/scan:POST', '/status/send:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
+allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
 
 
 
@@ -107,9 +107,9 @@ class Simple(resource.Resource):
 
 def sync_body(body, server):
     data = json.loads(body)
-    contacts.red(json.loads(body), None)
+    contacts.red(json.loads(body), None) # TODO-DAN contacts.red doesnt exist, not sure what it used to do.
     servers[server] = data['now']
-    json.dump(servers, open(servers_file_name, 'w'))
+    json.dump(servers, open(servers_file_path, 'w'))
     logger.info('Response body: %s' % data)
     return
 
