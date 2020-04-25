@@ -18,8 +18,8 @@ jobs:
           command: python -m pytest tests
           name: Test
       - slack/status:
-	  success_message: ":tada: A $CIRCLE_JOB job on $CIRCLE_BRANCH has succeeded!"
-	  failure_message: ":red_circle: A $CIRCLE_JOB job on $CIRCLE_BRANCH has failed!"
+          success_message: ":tada: A $CIRCLE_JOB job on $CIRCLE_BRANCH has succeeded!"
+          failure_message: ":red_circle: A $CIRCLE_JOB job on $CIRCLE_BRANCH has failed!"
 
 workflows:
   main:
