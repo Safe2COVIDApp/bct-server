@@ -1,3 +1,4 @@
+# noinspection PyUnusedLocal
 def test_admin_config(server, data):
     server.reset()
     resp = server.admin_config()

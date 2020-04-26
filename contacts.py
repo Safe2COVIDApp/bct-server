@@ -6,10 +6,8 @@ import json
 import time
 import datetime
 import rtree
-import hashlib
 import string
 import random
-import functools
 import copy
 from lib import hash_nonce, fold_hash
 
@@ -39,7 +37,7 @@ class UpdateTokenGeoIdx(dict):
     def store(self, updatetoken, obj):
         self[updatetoken] = obj
 
-class SpatialIndex():
+class SpatialIndex:
     def __init__(self, file_path):
         self.file_path = file_path
         self.index = rtree.index.Index(file_path)
@@ -100,7 +98,7 @@ class SpatialIndex():
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
-#   list of dates (as integersfor since compares) of when contact data# has come in.
+#   list of dates (as integers for since compares) of when contact data# has come in.
 
 
 # for an id "DEADBEEF", the in memory version is stored in self.ids in the element
@@ -115,7 +113,6 @@ def register_method(_func = None, *, route):
     def decorator(func):
         registry[route] = func
         def wrapper(*args, **kwargs):
-            print('hi')
             return func(*args, **kwargs)
         return wrapper
 
@@ -164,14 +161,14 @@ class Contacts:
                     self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
 
                     # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
-                    blob = json.load(open(('%s/%s/%s/%s/%s' % (directory_root, dirs[0], dirs[1], dirs[2], file_name))))
+                    blob = json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, dirs[0], dirs[1], dirs[2], file_name))))
                     updatetoken = blob.get('updatetoken', None)
                     if updatetoken:
                         self.updatetoken_id_idx.store(updatetoken, file_name)
         return
     
     def close(self):
-        logging.info('closing spatizl index file')
+        logging.info('closing spatial index file')
         self.spatial_index.close()
         return
 
@@ -214,14 +211,14 @@ class Contacts:
 
     # get the three levels for both the memory and directory structure
     def _return_contact_keys(self, contact_id):
-        return (contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper())
+        return contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper()
 
     # Get the directory name
     def _return_dir_name(self, contact_id):
         first_level, second_level, third_level = self._return_contact_keys(contact_id)
         return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
 
-    # return all contact json contants since SINCE for CONTACT_ID
+    # return all contact json contents since SINCE for CONTACT_ID
     def _get_json_blobs(self, contact_id, since = None):
         dir_name = self._return_dir_name(contact_id)
         blobs = []
@@ -239,14 +236,14 @@ class Contacts:
     # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/send')
     def send_status(self, data, args):
-        logger.info('in send_statusa')
+        logger.info('in send_status')
         now = int(time.time())
 
         repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
         for key in ['memo', 'replaces', 'status']:
-            val = data.get(key);
-            if (val):
+            val = data.get(key)
+            if val:
                 repeated_fields[key] = val
 
         # first process contacts, then process geocode
@@ -354,15 +351,15 @@ class Contacts:
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
-        # Note that any replaced items will be sent as new items, so there is no need for a seperate list of nonces.
+        # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
 
-        since = args.get('since')
-        if since:
-            since = since[0].decode()
+        since_string = args.get('since')
+        if since_string:
+            since_string = since_string[0].decode()
         else:
-            since = "1970-01-01T01:01Z"
+            since_string = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
+        since = int(unix_time(datetime.datetime.fromisoformat(since_string.replace("Z", "+00:00"))))
         contacts = []
         for key1, value1 in self.ids.items():
             for key2, value2 in self.ids[key1].items():
@@ -376,7 +373,7 @@ class Contacts:
                 locations.append(obj)
         
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-               'since':since}
+               'since':since_string}
 
         if 0 != len(contacts):
             ret['contacts'] = contacts

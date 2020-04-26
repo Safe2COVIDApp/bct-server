@@ -4,8 +4,7 @@ from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
-from twisted.python import log
-import os
+#from twisted.python import log
 import logging
 import json
 from contacts import Contacts
@@ -60,12 +59,12 @@ logger = logging.getLogger(__name__)
 try:
     servers = json.load(open(servers_file_path))
     logger.info('read last read date from server neighbors from %s' % servers_file_path)
-except:
+except:  # TODO-DAN code checker doesn't like such a broad exception catch
     servers = {}
 if config.get('servers'):
     for server in config.get('servers').split(','):
         if server not in servers:
-            servers[server] = '197001010000'
+            servers[server] = '1970-01-01T00:00Z'
             
 allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
 
@@ -89,7 +88,7 @@ class Simple(resource.Resource):
         else:
             data = request.content.read()
         logger.info('request content: %s' % data)
-        # 
+        # TODO-DAN code checker says this is shadowing outer-level "args" are you intending to overwrite that variable, and if not maybe rename here ?
         args = {k.decode():[item for item in v] for k,v in request.args.items()}
 
         path = request.path.decode()
@@ -107,7 +106,7 @@ class Simple(resource.Resource):
 
 def sync_body(body, server):
     data = json.loads(body)
-    contacts.red(json.loads(body), None) # TODO-DAN contacts.red doesnt exist, not sure what it used to do.
+    contacts.send_status(json.loads(body), None) 
     servers[server] = data['now']
     json.dump(servers, open(servers_file_path, 'w'))
     logger.info('Response body: %s' % data)

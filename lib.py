@@ -15,8 +15,8 @@ def new_nonce(seed = None):
 def hash_nonce(nonce):
     return hashlib.sha1(nonce.encode()).hexdigest()
 
-def fold_hash(hash):
-    return "%X" % (int(hash[:20], 16) ^ int(hash[20:],16))
+def fold_hash(hash40):
+    return "%X" % (int(hash40[:20], 16) ^ int(hash40[20:],16))
 
 def random_ascii(length):
     return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
