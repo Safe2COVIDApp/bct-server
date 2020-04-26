@@ -402,7 +402,8 @@ class Contacts:
         return ret
 
     # Return a matching date - see issue#57 for discussion of a valid date
-    # Essentially is date < now because of confusion with items arriving the same second,
+    # Essentially is date < now to return all items in anything other than the current second
+    # that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
     # And is since <= date so that passing back now will get any events that happened on that second
     def _good_date(self, date, since = None, now = None):
         return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))

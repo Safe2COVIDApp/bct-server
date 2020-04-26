@@ -16,12 +16,14 @@ def test_send_seq1(server, data):
     assert len(bob_id_alerts) == 0
     # Alice sends in an alert for location
     server.send_status_json(locations = [data.locations_in[0], data.locations_out[0]], status = 2)
+    time.sleep(1) # Make sure its a new time slot
     # Bob should see it
     json_data = server.scan_status_json(contact_prefixes = [bob_prefix], locations = [ data.locations_box ])
     bob_location_alerts = [ i for i in json_data['locations'] if ( location_match(data.locations_in[0], i) and (i.get('status',0) > 0)) ]
     assert len(bob_location_alerts) == 1
     # Carol sends in an alert for Bob's id
     server.send_status_json(contacts = [{"id":bob_id}], status = 2)
+    time.sleep(1) # Make sure its a new time slot
     # Bob should see it
     json_data = server.scan_status_json(contact_prefixes = [bob_prefix], locations = [ data.locations_box ])
     bob_id_alerts = [ i for i in json_data['ids'] if (i.get('id') == bob_id) ]
