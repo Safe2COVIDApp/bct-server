@@ -27,6 +27,30 @@ class ContactDict(dict):
         self[key] = ContactDict()
         return self[key]
 
+    # return all ids that match the prefix
+    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
+    def _get_matching_contacts(self, prefix, start_pos = 0):
+        matches = []
+        if start_pos < 6:
+            this_prefix = prefix[start_pos:]
+            if len(this_prefix) >= 2:
+                next_ids = self.get(this_prefix[0:2])
+                if next_ids:
+                    matches = next_ids._get_matching_contacts(prefix, start_pos + 2)
+            else:
+                if 0 == len(this_prefix):
+                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
+                else:
+                    hex_char = this_prefix[0]
+                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
+                for this_prefix in prefixes:
+                    these_ids = self.get(this_prefix)
+                    if these_ids:
+                        matches = matches + these_ids._get_matching_contacts(prefix, start_pos + 2)
+        else:
+            matches = list(filter(lambda x: x.startswith(prefix), self.keys()))
+        return matches
+
 class UpdateTokenIdIdx(dict):
 
     def store(self, updatetoken, file_name):
@@ -227,7 +251,7 @@ class Contacts:
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        if (not since) or (since < int(date)):
+                        if (not since) or (since < int(date)): # TODO-
                             blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
@@ -292,30 +316,6 @@ class Contacts:
                         self._store_geo(location)
         return {"status": "ok"}
 
-    # return all ids that match the prefix
-    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
-    def _get_matching_contacts(self, prefix, ids, start_pos = 0):
-        matches = []
-        if start_pos < 6:
-            this_prefix = prefix[start_pos:]
-            if len(this_prefix) >= 2:
-                ids = ids.get(this_prefix[0:2])
-                if ids:
-                    matches = self._get_matching_contacts(prefix, ids, start_pos + 2)
-            else:
-                if 0 == len(this_prefix):
-                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
-                else:
-                    hex_char = this_prefix[0]
-                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
-                for this_prefix in prefixes:
-                    these_ids = ids.get(this_prefix)
-                    if these_ids:
-                        matches = matches + self._get_matching_contacts(prefix, these_ids, start_pos + 2)
-        else:
-            matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
-        return matches
-
     # scan_status post
     @register_method(route = '/status/scan')
     def scan_status(self, data, args):
@@ -331,7 +331,7 @@ class Contacts:
         if prefixes:
             matched_ids = []
             for prefix in prefixes:
-                for contact in self._get_matching_contacts(prefix, self.ids):
+                for contact in self.ids._get_matching_contacts(prefix):
                     matched_ids = matched_ids + self._get_json_blobs(contact, since)
             ret['ids'] = matched_ids
 
@@ -369,7 +369,7 @@ class Contacts:
 
         locations = []
         for obj in self.spatial_index.map_over_objects():
-            if (not since) or (since <= obj['date']):
+            if (not since) or (since < obj['date']):
                 locations.append(obj)
         
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
