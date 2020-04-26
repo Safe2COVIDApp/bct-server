@@ -273,7 +273,7 @@ class Contacts:
             for i in range(length):
                 updatetokens = data.get('updatetokens',[])
                 nextkey = hash_nonce(nextkey)
-                #TODO-33 Storing this replaces doesn't prove anything - since just folded to make updatetoken
+                #TODO-55 Storing this replaces doesn't prove anything - since just folded to make updatetoken
                 updates = {'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop()}  # SEE-OTHER-ADD-FIELDS
                 file_name = self.updatetoken_id_idx.get(fold_hash(nextkey))
                 if file_name:

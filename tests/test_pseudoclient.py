@@ -83,7 +83,7 @@ class Client:
         location_replaces = [ loc.get('replaces') for loc in self.location_alerts if loc.get('replaces')]
 
         # Find updatetokens that have been replaced
-        # TODO-33 will change what store as replaces in data points
+        # TODO-55 will change what store as replaces in data points
         id_updatetokens = [ fold_hash(nextkey) for nextkey in id_replaces ]
         location_updatetokens = [ fold_hash(nextkey) for nextkey in location_replaces ]
 
@@ -114,7 +114,6 @@ class Client:
         if new_status != self.status: # Its changed
             self.status = new_status
             replaces = self.nonce # Will be None the first time
-            #TODO-50 if Alice is infected she should send out statuses each time add someone
             self.nonce = new_nonce()
             if replaces:
                 length = len(self.locations)+len(self.observed_ids)

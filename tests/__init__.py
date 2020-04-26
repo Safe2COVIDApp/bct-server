@@ -121,7 +121,7 @@ class Server:
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term): # TODO-33-DAN got to be wrong - why would be searching on a matchterm against uddate token
+    def get_data_to_match_hash(self, match_term):
         idx = rtree.index.Index('%s/rtree' % self.directory) 
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):

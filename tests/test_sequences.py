@@ -71,4 +71,4 @@ def test_seq_update_replace(server, data):
     assert len(bob_location_alerts) == 1
     assert bob_location_alerts[0].get('status') == 4
 
-    # TODO-33 Similar idea but using hospital style replacement
+    # TODO-56 Similar idea but using hospital style replacement
