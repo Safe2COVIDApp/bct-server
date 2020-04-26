@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import time
+import calendar
 import datetime
 import rtree
 import string
@@ -26,6 +27,30 @@ class ContactDict(dict):
     def __missing__(self, key):
         self[key] = ContactDict()
         return self[key]
+
+    # return all ids that match the prefix
+    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
+    def _get_matching_contacts(self, prefix, start_pos = 0):
+        matches = []
+        if start_pos < 6:
+            this_prefix = prefix[start_pos:]
+            if len(this_prefix) >= 2:
+                next_ids = self.get(this_prefix[0:2])
+                if next_ids:
+                    matches = next_ids._get_matching_contacts(prefix, start_pos + 2)
+            else:
+                if 0 == len(this_prefix):
+                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
+                else:
+                    hex_char = this_prefix[0]
+                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
+                for this_prefix in prefixes:
+                    these_ids = self.get(this_prefix)
+                    if these_ids:
+                        matches = matches + these_ids._get_matching_contacts(prefix, start_pos + 2)
+        else:
+            matches = list(filter(lambda x: x.startswith(prefix), self.keys()))
+        return matches
 
 class UpdateTokenIdIdx(dict):
 
@@ -120,7 +145,6 @@ def register_method(_func = None, *, route):
         return decorator
     else:
         return decorator(_func)
-
 
 class Contacts:
 
@@ -219,7 +243,7 @@ class Contacts:
         return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
 
     # return all contact json contents since SINCE for CONTACT_ID
-    def _get_json_blobs(self, contact_id, since = None):
+    def _get_json_blobs(self, contact_id, since = None, now = None):
         dir_name = self._return_dir_name(contact_id)
         blobs = []
         if os.path.isdir(dir_name):
@@ -227,7 +251,7 @@ class Contacts:
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        if (not since) or (since < int(date)):
+                        if self._good_date(int(date), since, now):
                             blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
@@ -292,34 +316,11 @@ class Contacts:
                         self._store_geo(location)
         return {"status": "ok"}
 
-    # return all ids that match the prefix
-    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
-    def _get_matching_contacts(self, prefix, ids, start_pos = 0):
-        matches = []
-        if start_pos < 6:
-            this_prefix = prefix[start_pos:]
-            if len(this_prefix) >= 2:
-                ids = ids.get(this_prefix[0:2])
-                if ids:
-                    matches = self._get_matching_contacts(prefix, ids, start_pos + 2)
-            else:
-                if 0 == len(this_prefix):
-                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
-                else:
-                    hex_char = this_prefix[0]
-                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
-                for this_prefix in prefixes:
-                    these_ids = ids.get(this_prefix)
-                    if these_ids:
-                        matches = matches + self._get_matching_contacts(prefix, these_ids, start_pos + 2)
-        else:
-            matches = list(filter(lambda x: x.startswith(prefix), ids.keys()))
-        return matches
-
     # scan_status post
     @register_method(route = '/status/scan')
     def scan_status(self, data, args):
         since = data.get('since')
+        now = time.gmtime()
         ret = {}
         if since:
             ret['since'] = since
@@ -331,8 +332,8 @@ class Contacts:
         if prefixes:
             matched_ids = []
             for prefix in prefixes:
-                for contact in self._get_matching_contacts(prefix, self.ids):
-                    matched_ids = matched_ids + self._get_json_blobs(contact, since)
+                for contact in self.ids._get_matching_contacts(prefix):
+                    matched_ids = matched_ids + self._get_json_blobs(contact, since = since, now =  now)
             ret['ids'] = matched_ids
 
         # Find any reported locations, inside the requests bounding box.
@@ -342,17 +343,17 @@ class Contacts:
         if req_locations:
             for bounding_box in req_locations:
                 for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
-                    if (not since) or (since < location['date']):
+                    if self._good_date(location['date'], since, now):
                         locations.append(location)
             ret['locations'] = locations
-        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', now)
         return ret
 
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
-
+        now = time.gmtime()  # Do this at the start of the process, we want to guarrantee have all before this time (even if multithreading)
         since_string = args.get('since')
         if since_string:
             since_string = since_string[0].decode()
@@ -365,14 +366,14 @@ class Contacts:
             for key2, value2 in self.ids[key1].items():
                 for key3, value3 in self.ids[key1][key2].items():
                     for contact_id in self.ids[key1][key2][key3].keys():
-                        contacts = contacts + self._get_json_blobs(contact_id, since)
+                        contacts = contacts + self._get_json_blobs(contact_id, since = since, now = now)
 
         locations = []
         for obj in self.spatial_index.map_over_objects():
-            if (not since) or (since <= obj['date']):
+            if self._good_date(obj['date'], since, now):
                 locations.append(obj)
         
-        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', now),
                'since':since_string}
 
         if 0 != len(contacts):
@@ -399,6 +400,13 @@ class Contacts:
             'contacts_count': self.id_count
         }
         return ret
+
+    # Return a matching date - see issue#57 for discussion of a valid date
+    # Essentially is date < now to return all items in anything other than the current second
+    # that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
+    # And is since <= date so that passing back now will get any events that happened on that second
+    def _good_date(self, date, since = None, now = None):
+        return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
 
     # reset should only be called and allowed if testing
     def reset(self):

@@ -155,14 +155,16 @@ def test_pseudoclient_work(server, data):
     alice.observes(bob)
     bob.observes(alice)
     alice.update_status(STATUS_INFECTED)
+    time.sleep(1)
     bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     assert len(bob.location_alerts) == 1
     assert bob.status == STATUS_PUI
-    time.sleep(1.5) # Make sure its a new time slot
+    time.sleep(1) # Make sure its a new time slot
     bob.cron_hourly()  # Bob polls and should get its own report back
-    time.sleep(1.5) # Make sure its a new time slot
+    #time.sleep(1.5) # Make sure its a new time slot
     alice.update_status(STATUS_HEALTHY)
+    time.sleep(1)
     bob.cron_hourly()  # Bob polls and should get the update from alice
     assert len(bob.id_alerts) == 2
     assert len(bob.location_alerts) == 2
