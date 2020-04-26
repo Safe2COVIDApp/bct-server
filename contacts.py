@@ -10,6 +10,7 @@ import rtree
 import string
 import random
 import copy
+from collections import defaultdict
 from lib import hash_nonce, fold_hash
 
 def unix_time(dt):
@@ -18,11 +19,41 @@ def unix_time(dt):
 os.umask(0o007)
 
 
+
 logger = logging.getLogger(__name__)
 
 
+class ContactDict(defaultdict):
+    # return all ids that match the prefix
+    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
+    def _get_matching_contacts(self, prefix, start_pos = 0):
+        matches = []
+        if start_pos < 6:
+            this_prefix = prefix[start_pos:]
+            if len(this_prefix) >= 2:
+                next_ids = self.get(this_prefix[0:2])
+                if next_ids:
+                    matches = next_ids._get_matching_contacts(prefix, start_pos + 2)
+            else:
+                if 0 == len(this_prefix):
+                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
+                else:
+                    hex_char = this_prefix[0]
+                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
+                for this_prefix in prefixes:
+                    these_ids = self.get(this_prefix)
+                    if these_ids:
+                        matches = matches + these_ids._get_matching_contacts(prefix, start_pos + 2)
+        else:
+            matches = list(filter(lambda x: x.startswith(prefix), self.keys()))
+        return matches
+    
+def default_dict_fact():
+    return ContactDict(default_dict_fact)
+
+
 # like a dict but the values can be auto extended, is if you want to set a[B][C] you don't have to initialize B apriori
-class ContactDict(dict):
+class fContactDict(dict):
 
     def __missing__(self, key):
         self[key] = ContactDict()
@@ -146,13 +177,16 @@ def register_method(_func = None, *, route):
     else:
         return decorator(_func)
 
+import pdb
+
 class Contacts:
 
     def __init__(self, config):
         self.directory_root = config['directory']
         self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
-        self.ids = ContactDict()
+        self.ids = ContactDict(default_dict_fact)
+        #self.ids = defaultdict(default_dict_fact)
         self.updatetoken_id_idx = UpdateTokenIdIdx()
         self.updatetoken_geo_idx = UpdateTokenGeoIdx()
         self.id_count = 0
@@ -412,7 +446,8 @@ class Contacts:
     def reset(self):
         if self.testing:
             logger.info('resetting ids')
-            self.ids = ContactDict()
+            self.ids = ContactDict(default_dict_fact)
+            #self.ids = defaultdict(default_dict_fact)
             self.updatetoken_id_idx = UpdateTokenIdIdx()
             self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         return
