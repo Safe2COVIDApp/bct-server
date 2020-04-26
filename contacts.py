@@ -4,6 +4,7 @@ import logging
 import os
 import json
 import time
+import calendar
 import datetime
 import rtree
 import string
@@ -145,7 +146,6 @@ def register_method(_func = None, *, route):
     else:
         return decorator(_func)
 
-
 class Contacts:
 
     def __init__(self, config):
@@ -243,7 +243,7 @@ class Contacts:
         return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
 
     # return all contact json contents since SINCE for CONTACT_ID
-    def _get_json_blobs(self, contact_id, since = None):
+    def _get_json_blobs(self, contact_id, since = None, now = None):
         dir_name = self._return_dir_name(contact_id)
         blobs = []
         if os.path.isdir(dir_name):
@@ -251,7 +251,7 @@ class Contacts:
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if code == contact_id:
-                        if (not since) or (since < int(date)): # TODO-
+                        if self._good_date(int(date), since, now):
                             blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
         return blobs
 
@@ -320,6 +320,7 @@ class Contacts:
     @register_method(route = '/status/scan')
     def scan_status(self, data, args):
         since = data.get('since')
+        now = time.gmtime()
         ret = {}
         if since:
             ret['since'] = since
@@ -332,7 +333,7 @@ class Contacts:
             matched_ids = []
             for prefix in prefixes:
                 for contact in self.ids._get_matching_contacts(prefix):
-                    matched_ids = matched_ids + self._get_json_blobs(contact, since)
+                    matched_ids = matched_ids + self._get_json_blobs(contact, since = since, now =  now)
             ret['ids'] = matched_ids
 
         # Find any reported locations, inside the requests bounding box.
@@ -342,17 +343,17 @@ class Contacts:
         if req_locations:
             for bounding_box in req_locations:
                 for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
-                    if (not since) or (since < location['date']):
+                    if self._good_date(location['date'], since, now):
                         locations.append(location)
             ret['locations'] = locations
-        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
+        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', now)
         return ret
 
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
-
+        now = time.gmtime()  # Do this at the start of the process, we want to guarrantee have all before this time (even if multithreading)
         since_string = args.get('since')
         if since_string:
             since_string = since_string[0].decode()
@@ -365,14 +366,14 @@ class Contacts:
             for key2, value2 in self.ids[key1].items():
                 for key3, value3 in self.ids[key1][key2].items():
                     for contact_id in self.ids[key1][key2][key3].keys():
-                        contacts = contacts + self._get_json_blobs(contact_id, since)
+                        contacts = contacts + self._get_json_blobs(contact_id, since = since, now = now)
 
         locations = []
         for obj in self.spatial_index.map_over_objects():
-            if (not since) or (since < obj['date']):
+            if self._good_date(obj['date'], since, now):
                 locations.append(obj)
         
-        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', now),
                'since':since_string}
 
         if 0 != len(contacts):
@@ -399,6 +400,12 @@ class Contacts:
             'contacts_count': self.id_count
         }
         return ret
+
+    # Return a matching date - see issue#57 for discussion of a valid date
+    # Essentially is date < now because of confusion with items arriving the same second,
+    # And is since <= date so that passing back now will get any events that happened on that second
+    def _good_date(self, date, since = None, now = None):
+        return (not since) or (since <= date) and ((not now) or (date < calendar.timegm(now)))
 
     # reset should only be called and allowed if testing
     def reset(self):
