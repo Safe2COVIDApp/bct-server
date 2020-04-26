@@ -405,7 +405,7 @@ class Contacts:
     # Essentially is date < now because of confusion with items arriving the same second,
     # And is since <= date so that passing back now will get any events that happened on that second
     def _good_date(self, date, since = None, now = None):
-        return (not since) or (since <= date) and ((not now) or (date < calendar.timegm(now)))
+        return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
 
     # reset should only be called and allowed if testing
     def reset(self):
