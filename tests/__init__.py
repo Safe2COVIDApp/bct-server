@@ -36,24 +36,16 @@ class Server:
         return req
 
     def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
+        # contacts and locations should already have updatetokens if want that functionality
         logger.info('before %s call' % endpoint_name)
         data = {}
-        if nonce:
+        if nonce and kwargs.get('replaces'):
             nexthash = hash_nonce(nonce)
-            if contacts:
-                for c in contacts:
-                    c["updatetoken"] = fold_hash(nexthash)
-                    nexthash = hash_nonce(nexthash)
-            if locations:
-                for l in locations:
-                    l["updatetoken"] = fold_hash(nexthash)
-                    nexthash = hash_nonce(nexthash)
-            if kwargs.get('replaces'):
-                updatetokens = []
-                for i in range(kwargs.get('length')):
-                    updatetokens.append(fold_hash(nexthash))
-                    nexthash = hash_nonce(nexthash)
-                data['updatetokens'] = updatetokens
+            updatetokens = []
+            for i in range(kwargs.get('length')):
+                updatetokens.append(fold_hash(nexthash))
+                nexthash = hash_nonce(nexthash)
+            data['updatetokens'] = updatetokens
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -136,6 +128,17 @@ class Server:
         #    if match_term == obj.object['updatetoken']:
             matches.append(obj.object)
         return matches
+
+    def add_update_tokens(self, nonce, contacts, locations):
+        nexthash = hash_nonce(nonce)
+        if contacts:
+            for c in contacts:
+                c["updatetoken"] = fold_hash(nexthash)
+                nexthash = hash_nonce(nexthash)
+        if locations:
+            for l in locations:
+                l["updatetoken"] = fold_hash(nexthash)
+                nexthash = hash_nonce(nexthash)
 
 
 def get_free_port():
