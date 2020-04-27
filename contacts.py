@@ -11,7 +11,7 @@ import string
 import random
 import copy
 from collections import defaultdict
-from lib import hash_nonce, fold_hash, random_ascii
+from lib import update_token, replacement_token, random_ascii
 
 def unix_time(dt):
     return int(dt.timestamp())
@@ -364,6 +364,7 @@ class Contacts:
 
         repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
+        # Note memo is not supported yet and is a placeholder
         for key in ['memo', 'replaces', 'status']:
             val = data.get(key)
             if val:
@@ -404,6 +405,8 @@ class Contacts:
                         json_data.update(updates)
                         # Store in the structure with the new info
                         this_dict.insert(key, json_data, now)
+                # TODO-55 if some of the data points aren't found, there may be a synchronization issue, in which case server may need to hold the updatetoken and watch for the replaceable data coming in
+
         return {"status": "ok"}
 
     # scan_status post
@@ -491,4 +494,5 @@ class Contacts:
             logger.info('resetting ids')
             self.spatial_dict = SpatialDict(self.directory_root)
             self.contact_dict = ContactDict(self.directory_root)
+            # TODO-DAN - I think if its not in self.testing it should return a 403
         return
