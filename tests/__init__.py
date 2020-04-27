@@ -122,11 +122,12 @@ class Server:
         return matches
 
     def get_data_to_match_hash(self, match_term):
-        idx = rtree.index.Index('%s/spatial_dict/rtree' % self.directory) 
         matches = []
-        for obj in idx.intersection(idx.bounds, objects = True):
-        #    if match_term == obj.object['updatetoken']:
-            matches += self.get_data_from_id(obj.object, dict_type = 'spatial_dict')
+        for root, sub_dirs, files in os.walk('%s/spatial_dict' % self.directory):
+            for file_name in files:
+                if file_name.endswith('.data'):
+                    #    if match_term == obj.object['updatetoken']:
+                    matches.append(json.load(open(root + '/' + file_name)))
         return matches
 
     def add_update_tokens(self, nonce, contacts, locations):

@@ -64,22 +64,51 @@ class FSBackedThreeLevelDict():
                     blob = json.load(open(('%s/%s/%s/%s/%s' % (self.directory, dirs[0], dirs[1], dirs[2], file_name))))
                     updatetoken = blob.get('updatetoken')
                     if updatetoken:
-                        self.update_index[updatetoken, file_name]
+                        self.update_index[updatetoken] = file_name
+                    self._load_key(code, blob)
+        return
+        
+    def _load_key(self, key, blob):
+        """
+        _load_key can be subclassed to associate a key with data stored at that key
+        
+        Parameters:
+        ----------
+        key -- String
+               Index into the FS and dictionary
+        blob -- Dict 
+                Data associated with Key
+        """
         return
         
 
+
     def _make_key(self, key):
+        """ 
+        _make_key is defined in the subclass and returns a unique string (should be over 6 characters, but long enough to avoid collisions)
+        shthat can be used to index into the three level filesystem 
+
+        Parameters:
+        ----------
+        self -- FSBackedThreeLevelDict
+        key  -- the object that needs to be turned into the string
+        """
         raise NotImplementedError
     
-    def _insert_disk(self, original_key, new_key, value, date):
+    def _insert_disk(self, key, value, date):
+        """
+        _insert_disk does subclass dependent insertion into both memory and filesystem
+        
+        Parameters:
+        -----------
+        """
         raise NotImplementedError
 
-    def _get_directory_name_and_chunks(self, key):
+    def get_directory_name_and_chunks(self, key):
         chunks = [key[i:i+2] for i in [0, 2, 4]]
         dir_name = '%s/%s/%s/%s' % (self.directory, chunks[0], chunks[1], chunks[2])
         return (chunks, dir_name)
 
-        
     def insert(self, key, value, date):
         if str != type(key):
             key = self._make_key(key)
@@ -91,7 +120,7 @@ class FSBackedThreeLevelDict():
         key = key.upper()
 
 
-        chunks, dir_name = self._get_directory_name_and_chunks(key)
+        chunks, dir_name = self.get_directory_name_and_chunks(key)
         
         # first put this date into the item list
         if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
@@ -105,7 +134,7 @@ class FSBackedThreeLevelDict():
         with open(file_path, 'w') as file:
             json.dump(value, file)
         
-        self._insert_disk(key, value, date)
+        self._insert_disk(key)
         self.item_count += 1
         return
 
@@ -116,7 +145,7 @@ class FSBackedThreeLevelDict():
         return self.item_count
     
     def map_over_json_blobs(self, key, since, now):
-        chunks, dir_name = self._get_directory_name_and_chunks(key)
+        chunks, dir_name = self.get_directory_name_and_chunks(key)
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
@@ -142,7 +171,7 @@ class ContactDict(FSBackedThreeLevelDict):
         os.makedirs(directory, 0o770, exist_ok = True)
         super().__init__(directory)
 
-    def _insert_disk(self, key, value, date):
+    def _insert_disk(self, key):
         logger.info('ignoring _insert_disk for ContactDict')
         return
 
@@ -180,26 +209,32 @@ class SpatialDict(FSBackedThreeLevelDict):
         directory = directory + '/spatial_dict'
         os.makedirs(directory, 0o770, exist_ok = True)
         super().__init__(directory)
-        self.spatial_index = rtree.index.Index('%s/rtree' % directory)
+        self.spatial_index = rtree.index.Index(directory + '/rtree')
         self.keys = {}
+        self.coords = {}
         return
         
-    def _make_key(self, key):
-        (lat, long) = key
-        val = int(lat * long)
-        ret = self.keys.get(val)
-        if not ret:
-            ret = random_ascii(10).upper()
-            self.keys[val] = ret
-            self.keys[ret] = key
-        return ret
+    def _load_key(self, key, blob):
+        lat = float(original_data['lat'])
+        long = float(original_data['long'])
+        self.keys[(lat, long)] = key
+        self.coords[key] = (lat, long)
+        return
+        
+        
+    def _make_key(self, key_tuple):
+        (lat, long) = key_tuple
+        key_string = self.keys.get(key_tuple)
+        if not key_string:
+            key_string = random_ascii(10).upper()
+            self.keys[key_tuple] = key_string
+            self.coords[key_string] = key_tuple
+        return key_string
 
-    def _insert_disk(self, key, value, date):
-        original_key = self.keys[key]
-        (lat, long) = original_key
-        self.spatial_index.insert(int(lat * long),  (lat, long, lat, long), obj = key)
-        self.spatial_index.close()
-        self.spatial_index = rtree.index.Index('%s/rtree' % self.directory)
+    def _insert_disk(self, key):
+        (lat, long) = self.coords[key]
+        # we can always use the 0 for the id, duplicates are allowed
+        self.spatial_index.insert(0,  (lat, long, lat, long), obj = key)
         return
 
     @property
@@ -211,9 +246,6 @@ class SpatialDict(FSBackedThreeLevelDict):
             yield from self.map_over_json_blobs(obj.object, since, now)
         return
 
-    def close(self):
-        self.spatial_index.close()
-        return
 
 # MITRA -- keeping this class so you can refer to it, delete when you are ready to
 class SpatialIndex:
@@ -315,8 +347,6 @@ class Contacts:
         return registry[name](self, *args)
 
     def close(self):
-        logging.info('closing spatial index file')
-        self.spatial_dict.close()
         return
 
 
@@ -360,21 +390,15 @@ class Contacts:
                 nextkey = hash_nonce(nextkey)
                 #TODO-55 Storing this replaces doesn't prove anything - since just folded to make updatetoken
                 updates = {'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop()}  # SEE-OTHER-ADD-FIELDS
-                file_name = self.updatetoken_id_idx.get(fold_hash(nextkey))
-                if file_name:
-                    (contact_id, ignore, date, extension) = file_name.split('.')
-                    dir_name = self._return_dir_name(contact_id)
-                    json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
-                    json_data.update(updates)
-                    # Store in the structure with the new info
-                    self._store_id(contact_id, json_data, now)
-                else:  # Cannot be filename and geo_obj for same updatetoken
-                    geo_obj = self.updatetoken_geo_idx.get(fold_hash(nextkey))
-                    if geo_obj:
-                        location = copy.deepcopy(geo_obj)
-                        location['date'] = now
-                        location.update(updates)
-                        self._store_geo(location)
+                for this_dict in [self.contact_dict, self.spatial_dict]:
+                    file_name = this_dict.update_index.get(fold_hash(nextkey))
+                    if file_name:
+                        (key, ignore, date, extension) = file_name.split('.')
+                        chunks, dir_name = this_dict.get_directory_name_and_chunks(key)
+                        json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
+                        json_data.update(updates)
+                        # Store in the structure with the new info
+                        this_dict.insert(key, json_data, now)
         return {"status": "ok"}
 
     # scan_status post
