@@ -11,7 +11,7 @@ import string
 import random
 import copy
 from collections import defaultdict
-from lib import hash_nonce, fold_hash
+from lib import hash_nonce, fold_hash, random_ascii
 
 def unix_time(dt):
     return int(dt.timestamp())
@@ -22,10 +22,210 @@ os.umask(0o007)
 
 logger = logging.getLogger(__name__)
 
+# Return a matching date - see issue#57 for discussion of a valid date
+# Essentially is date < now to return all items in anything other than the current second
+# that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
+# And is since <= date so that passing back now will get any events that happened on that second
+def _good_date(date, since = None, now = None):
+    return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
 
-class ContactDict(defaultdict):
+
+class FSBackedThreeLevelDict():
+
+    @staticmethod
+    def dictionary_factory():
+        return defaultdict(FSBackedThreeLevelDict.dictionary_factory)
+
+    def __init__(self, directory):
+        self.items = FSBackedThreeLevelDict.dictionary_factory()
+        self.item_count = 0
+        self.update_index = {}
+        self.file_map = {}
+        self.directory = directory
+        self._load()
+        return
+
+    def _load(self):
+        for root, sub_dirs, files in os.walk(self.directory):
+            for file_name in files:
+                if file_name.endswith('.data'):
+                    (code, ignore, date, extension) = file_name.split('.')
+                    dirs = root.split('/')[-3:]
+                    contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
+                    date = int(date)
+                    dates = [date]
+                    if code in contact_dates:
+                        dates = contact_dates[code]
+                        dates.append(date)
+                    self.item_count += 1
+                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = dates
+
+                    # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
+                    blob = json.load(open(('%s/%s/%s/%s/%s' % (self.directory, dirs[0], dirs[1], dirs[2], file_name))))
+                    updatetoken = blob.get('updatetoken')
+                    if updatetoken:
+                        self.update_index[updatetoken, file_name]
+        return
+        
+
+    def _make_key(self, key):
+        raise NotImplementedError
+    
+    def _insert_disk(self, original_key, new_key, value, date):
+        raise NotImplementedError
+
+    def _get_directory_name_and_chunks(self, key):
+        chunks = [key[i:i+2] for i in [0, 2, 4]]
+        dir_name = '%s/%s/%s/%s' % (self.directory, chunks[0], chunks[1], chunks[2])
+        return (chunks, dir_name)
+
+        
+    def insert(self, key, value, date):
+        if str != type(key):
+            key = self._make_key(key)
+        if value in self.map_over_json_blobs(key, None, None):
+            logger.warning('%s already in data for %s' % (value, key))
+            return
+        if 6 > len(key):
+            raise Exception("Key %s must by at least 6 characters long" % key)
+        key = key.upper()
+
+
+        chunks, dir_name = self._get_directory_name_and_chunks(key)
+        
+        # first put this date into the item list
+        if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
+            self.items[chunks[0]][chunks[1]][chunks[2]][key] = [date]
+        else:
+            self.items[chunks[0]][chunks[1]][chunks[2]][key].append(date)
+
+        os.makedirs(dir_name, 0o770, exist_ok = True)
+        file_path = '%s/%s.%s.%d.data'  % (dir_name, key, random_ascii(6), date)
+        logger.info('writing %s to %s' % (value, file_path))
+        with open(file_path, 'w') as file:
+            json.dump(value, file)
+        
+        self._insert_disk(key, value, date)
+        self.item_count += 1
+        return
+
+    def map_over_matching_data(self, key, since, now, start_pos = 0):
+        raise NotImplementedError
+
+    def __len__(self):
+        return self.item_count
+    
+    def map_over_json_blobs(self, key, since, now):
+        chunks, dir_name = self._get_directory_name_and_chunks(key)
+        if os.path.isdir(dir_name):
+            for file_name in os.listdir(dir_name):
+                if file_name.endswith('data'):
+                    (code, ignore, date, extension) = file_name.split('.')
+                    if (code == key) and _good_date(int(date), since, now):
+                        yield json.load(open(('%s/%s' % (dir_name, file_name))))
+
+        return
+
+    def map_over_all_data(self, since = None, now = None):
+        for key1, value1 in self.items.items():
+            for key2, value2 in self.items[key1].items():
+                for key3, value3 in self.items[key1][key2].items():
+                    for key in self.items[key1][key2][key3].keys():
+                        yield from self.map_over_json_blobs(key, since, now)
+
+        
+
+class ContactDict(FSBackedThreeLevelDict):
+
+    def __init__(self, directory):
+        directory = directory + '/contact_dict'
+        os.makedirs(directory, 0o770, exist_ok = True)
+        super().__init__(directory)
+
+    def _insert_disk(self, key, value, date):
+        logger.info('ignoring _insert_disk for ContactDict')
+        return
+
+
+    def _map_over_matching_contacts(self, prefix, ids, since, now, start_pos = 0):
+        logger.info('_map_over_matching_contacts called with %s, %s, %s, %s' % (prefix, ids.keys(), since, now))
+        if start_pos < 6:
+            this_prefix = prefix[start_pos:]
+            if len(this_prefix) >= 2:
+                ids = ids.get(this_prefix[0:2])
+                if ids:
+                    yield from self._map_over_matching_contacts(prefix, ids, since, now, start_pos + 2)
+            else:
+                if 0 == len(this_prefix):
+                    prefixes = [('%02x' % i).upper() for i in range(0,256)]
+                else:
+                    hex_char = this_prefix[0]
+                    prefixes = [('%s%01x' % (hex_char, i)).upper() for i in range(0,16)]
+                for this_prefix in prefixes:
+                    these_ids = ids.get(this_prefix)
+                    if these_ids:
+                        yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
+        else:
+            for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
+                yield from self.map_over_json_blobs(contact_id, since, now)
+        return
+
+
+    def map_over_matching_data(self, key, since, now):
+        yield from self._map_over_matching_contacts(key, self.items, since, now)
+        return
+
+class SpatialDict(FSBackedThreeLevelDict):
+    def __init__(self, directory):
+        directory = directory + '/spatial_dict'
+        os.makedirs(directory, 0o770, exist_ok = True)
+        super().__init__(directory)
+        self.spatial_index = rtree.index.Index('%s/rtree' % directory)
+        self.keys = {}
+        return
+        
+    def _make_key(self, key):
+        (lat, long) = key
+        val = int(lat * long)
+        ret = self.keys.get(val)
+        if not ret:
+            ret = random_ascii(10).upper()
+            self.keys[val] = ret
+            self.keys[ret] = key
+        return ret
+
+    def _insert_disk(self, key, value, date):
+        original_key = self.keys[key]
+        (lat, long) = original_key
+        self.spatial_index.insert(int(lat * long),  (lat, long, lat, long), obj = key)
+        self.spatial_index.close()
+        self.spatial_index = rtree.index.Index('%s/rtree' % self.directory)
+        return
+
+    @property
+    def bounds(self):
+        return self.spatial_index.bounds
+
+    def map_over_matching_data(self, key, since, now):
+        for obj in self.spatial_index.intersection(key, objects = True):  # [ object: [ obj, ob], object: [ obj, obj]]
+            yield from self.map_over_json_blobs(obj.object, since, now)
+        return
+
+    def close(self):
+        self.spatial_index.close()
+        return
+
+# used for contact ids
+class GContactDict:
+
+    @staticmethod
+    def dictionary_factory():
+        return defaultdict(ContactDict.dictionary_factory)
+
+    def __init__(self):
+        self.items = dictionary_factory()
+
     # return all ids that match the prefix
-    # TODO-DAN - would this be better as a method on Contact_Dict - YES either of us can change
     def _get_matching_contacts(self, prefix, start_pos = 0):
         matches = []
         if start_pos < 6:
@@ -48,8 +248,6 @@ class ContactDict(defaultdict):
             matches = list(filter(lambda x: x.startswith(prefix), self.keys()))
         return matches
     
-def default_dict_fact():
-    return ContactDict(default_dict_fact)
 
 
 # like a dict but the values can be auto extended, is if you want to set a[B][C] you don't have to initialize B apriori
@@ -93,6 +291,7 @@ class UpdateTokenGeoIdx(dict):
     def store(self, updatetoken, obj):
         self[updatetoken] = obj
 
+# MITRA -- keeping this class so you can refer to it, delete when you are ready to
 class SpatialIndex:
     def __init__(self, file_path):
         self.file_path = file_path
@@ -177,117 +376,24 @@ def register_method(_func = None, *, route):
     else:
         return decorator(_func)
 
-import pdb
 
 class Contacts:
 
     def __init__(self, config):
         self.directory_root = config['directory']
-        self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
         self.testing = ('True' == config.get('testing', ''))
-        self.ids = ContactDict(default_dict_fact)
-        #self.ids = defaultdict(default_dict_fact)
-        self.updatetoken_id_idx = UpdateTokenIdIdx()
-        self.updatetoken_geo_idx = UpdateTokenGeoIdx()
-        self.id_count = 0
-        self._load_ids_from_filesystem()
-        self._load_updatetoken_geo_idx()
+        self.spatial_dict = SpatialDict(self.directory_root)
+        self.contact_dict = ContactDict(self.directory_root)
         return
 
 
     def execute_route(self, name, *args):
         return registry[name](self, *args)
 
-    def _load_updatetoken_geo_idx(self):
-        for obj in self.spatial_index.map_over_objects():
-            if obj.updatetoken:
-                self.updatetoken_geo_idx.store(obj.updatetoken, obj)
-
-    def _load_ids_from_filesystem(self):
-        for root, sub_dirs, files in os.walk(self.directory_root):
-            for file_name in files:
-                if file_name.endswith('.data'):
-                    (code, ignore, date, extension) = file_name.split('.')
-                    dirs = root.split('/')[-3:]
-                    contact_dates = self.ids[dirs[0]][dirs[1]][dirs[2]]
-                    date = int(date)
-                    dates = [date]
-                    if code in contact_dates:
-                        dates = contact_dates[code]
-                        dates.append(date)
-                    self.id_count += 1
-                    self.ids[dirs[0]][dirs[1]][dirs[2]][code] = dates
-
-                    # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
-                    blob = json.load(open(('%s/%s/%s/%s/%s' % (self.directory_root, dirs[0], dirs[1], dirs[2], file_name))))
-                    updatetoken = blob.get('updatetoken', None)
-                    if updatetoken:
-                        self.updatetoken_id_idx.store(updatetoken, file_name)
-        return
-    
     def close(self):
         logging.info('closing spatial index file')
-        self.spatial_index.close()
+        self.spatial_dict.close()
         return
-
-    # used to start JSON_DATA at NOW for CONTACT_ID, if CONTACT_ID has other unique JSON_DATA then a new one will be stored
-    def _store_id(self, contact_id, json_data, now):
-        first_level, second_level, third_level = self._return_contact_keys(contact_id)
-        dir_name = "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
-        os.makedirs(dir_name, 0o770, exist_ok = True)
-
-        # we add some randomness to the name so we deal with the case of the same contact_id coming in within a minute (which is
-        # the resolution of now
-        
-        random_string = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(8)])
-        file_name = '%s.%s.%d.data' % (contact_id, random_string, now)
-        file_path = '%s/%s' % (dir_name, file_name)
-        logger.info('writing %s to %s' % (json_data, file_path))
-        with open(file_path, 'w') as file:
-            json.dump(json_data, file)
-        try:
-            dates = self.ids[first_level][second_level][third_level].get(contact_id, [])
-        except KeyError:
-            dates = []
-        dates.append(now)
-        self.ids[first_level][second_level][third_level][contact_id] = dates
-        self.id_count += 1
-        updatetoken = json_data.get('updatetoken')
-        if updatetoken:
-            self.updatetoken_id_idx.store(updatetoken, file_name)
-        return
-
-    def _store_geo(self, location):
-        lat = float(location['lat'])
-        long = float(location['long'])
-        # make a unique id
-        logger.info('inserting %s at lat: %f, long: %f' % (location, lat, long))
-        self.spatial_index.append(lat, long, location)
-        updatetoken = location.get('updatetoken')
-        if updatetoken:
-            self.updatetoken_geo_idx.store(updatetoken, location)
-
-    # get the three levels for both the memory and directory structure
-    def _return_contact_keys(self, contact_id):
-        return contact_id[0:2].upper(), contact_id[2:4].upper(), contact_id[4:6].upper()
-
-    # Get the directory name
-    def _return_dir_name(self, contact_id):
-        first_level, second_level, third_level = self._return_contact_keys(contact_id)
-        return "%s/%s/%s/%s" % (self.directory_root, first_level, second_level, third_level)
-
-    # return all contact json contents since SINCE for CONTACT_ID
-    def _get_json_blobs(self, contact_id, since = None, now = None):
-        dir_name = self._return_dir_name(contact_id)
-        blobs = []
-        if os.path.isdir(dir_name):
-            for file_name in os.listdir(dir_name):
-                if file_name.endswith('data'):
-                    (code, ignore, date, extension) = file_name.split('.')
-                    if code == contact_id:
-                        if self._good_date(int(date), since, now):
-                            blobs.append(json.load(open(('%s/%s' % (dir_name, file_name)))))
-        return blobs
 
 
     # send_status POST
@@ -308,14 +414,11 @@ class Contacts:
         for contact in data.get('contacts', []):
             contact.update(repeated_fields)
             contact_id = contact['id']
-            if contact in self._get_json_blobs(contact_id):
-                logger.info('contact for id: %s already found, not saving' % contact_id)
-            else:
-                self._store_id(contact_id, contact, now)
+            self.contact_dict.insert(contact_id, contact, now)
         for location in data.get('locations', []):
             location['date'] = now
             location.update(repeated_fields)
-            self._store_geo(location)
+            self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, now)
         return {"status": "ok"}
 
     # status_update POST
@@ -364,22 +467,21 @@ class Contacts:
 
         prefixes = data.get('contact_prefixes')
         if prefixes:
-            matched_ids = []
+            ret['ids'] = []
             for prefix in prefixes:
-                for contact in self.ids._get_matching_contacts(prefix):
-                    matched_ids = matched_ids + self._get_json_blobs(contact, since = since, now =  now)
-            ret['ids'] = matched_ids
+                for blob in self.contact_dict.map_over_matching_data(prefix, since, now):
+                    ret['ids'].append(blob)
 
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { minLat...} ] }
         req_locations = data.get('locations')
         locations = []
         if req_locations:
+            ret['locations'] = []
             for bounding_box in req_locations:
-                for location in self.spatial_index.get_objects_in_bounding_box(bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']):
-                    if self._good_date(location['date'], since, now):
-                        locations.append(location)
-            ret['locations'] = locations
+                for blob in self.spatial_dict.map_over_matching_data((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']),
+                                                                     since, now):
+                    ret['locations'].append(blob)
         ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', now)
         return ret
 
@@ -396,17 +498,12 @@ class Contacts:
 
         since = int(unix_time(datetime.datetime.fromisoformat(since_string.replace("Z", "+00:00"))))
         contacts = []
-        for key1, value1 in self.ids.items():
-            for key2, value2 in self.ids[key1].items():
-                for key3, value3 in self.ids[key1][key2].items():
-                    for contact_id in self.ids[key1][key2][key3].keys():
-                        contacts = contacts + self._get_json_blobs(contact_id, since = since, now = now)
-
+        for blob in self.contact_dict.map_over_all_data(since, now):
+            contacts.append(blob)
         locations = []
-        for obj in self.spatial_index.map_over_objects():
-            if self._good_date(obj['date'], since, now):
-                locations.append(obj)
-        
+        for blob in self.spatial_dict.map_over_all_data(since, now):
+            locations.append(blob)
+
         ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', now),
                'since':since_string}
 
@@ -429,25 +526,16 @@ class Contacts:
     @register_method(route = '/admin/status')
     def admin_status(self, data, args):
         ret = {
-            'bounding_box' : self.spatial_index.bounds,
-            'geo_points' : len(self.spatial_index),
-            'contacts_count': self.id_count
+            'bounding_box' : self.spatial_dict.bounds,
+            'geo_points' : len(self.spatial_dict),
+            'contacts_count': len(self.contact_dict)
         }
         return ret
-
-    # Return a matching date - see issue#57 for discussion of a valid date
-    # Essentially is date < now to return all items in anything other than the current second
-    # that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
-    # And is since <= date so that passing back now will get any events that happened on that second
-    def _good_date(self, date, since = None, now = None):
-        return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
 
     # reset should only be called and allowed if testing
     def reset(self):
         if self.testing:
             logger.info('resetting ids')
-            self.ids = ContactDict(default_dict_fact)
-            #self.ids = defaultdict(default_dict_fact)
-            self.updatetoken_id_idx = UpdateTokenIdIdx()
-            self.spatial_index = SpatialIndex('%s/rtree' % self.directory_root)
+            self.spatial_dict = SpatialDict(self.directory_root)
+            self.contact_dict = ContactDict(self.directory_root)
         return

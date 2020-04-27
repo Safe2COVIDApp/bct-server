@@ -104,11 +104,11 @@ class Server:
         logger.info('sent signal to server')
         return
 
-    def get_data_from_id(self, contact_id):
+    def get_data_from_id(self, contact_id, dict_type = 'contact_dict'):
         first_level = contact_id[0:2].upper()
         second_level = contact_id[2:4].upper()
         third_level = contact_id[4:6].upper()
-        dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
+        dir_name = "%s/%s/%s/%s/%s" % (self.directory, dict_type, first_level, second_level, third_level)
         logger.info('in get_data_from_id')
         matches = []
         try:
@@ -122,11 +122,11 @@ class Server:
         return matches
 
     def get_data_to_match_hash(self, match_term):
-        idx = rtree.index.Index('%s/rtree' % self.directory) 
+        idx = rtree.index.Index('%s/spatial_dict/rtree' % self.directory) 
         matches = []
         for obj in idx.intersection(idx.bounds, objects = True):
         #    if match_term == obj.object['updatetoken']:
-            matches.append(obj.object)
+            matches += self.get_data_from_id(obj.object, dict_type = 'spatial_dict')
         return matches
 
     def add_update_tokens(self, nonce, contacts, locations):
