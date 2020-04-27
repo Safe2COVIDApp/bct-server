@@ -10,7 +10,7 @@ from signal import SIGUSR1
 import json
 import os
 import rtree
-from lib import hash_nonce, fold_hash
+from lib import update_token, replacement_token
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -40,12 +40,9 @@ class Server:
         logger.info('before %s call' % endpoint_name)
         data = {}
         if nonce and kwargs.get('replaces'):
-            nexthash = hash_nonce(nonce)
-            updatetokens = []
-            for i in range(kwargs.get('length')):
-                updatetokens.append(fold_hash(nexthash))
-                nexthash = hash_nonce(nexthash)
-            data['updatetokens'] = updatetokens
+            data['updatetokens'] = [
+                update_token(replacement_token(nonce, i))
+                for i in range(kwargs.get('length'))]
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -129,18 +126,6 @@ class Server:
                     #    if match_term == obj.object['updatetoken']:
                     matches.append(json.load(open(root + '/' + file_name)))
         return matches
-
-    def add_update_tokens(self, nonce, contacts, locations):
-        nexthash = hash_nonce(nonce)
-        if contacts:
-            for c in contacts:
-                c["updatetoken"] = fold_hash(nexthash)
-                nexthash = hash_nonce(nexthash)
-        if locations:
-            for l in locations:
-                l["updatetoken"] = fold_hash(nexthash)
-                nexthash = hash_nonce(nexthash)
-
 
 def get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:

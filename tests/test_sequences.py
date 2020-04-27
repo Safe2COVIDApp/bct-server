@@ -1,5 +1,5 @@
 import time
-from lib import new_nonce
+from lib import new_nonce, update_token
 
 
 def location_match(here, there):
@@ -35,9 +35,9 @@ def broken_test_seq_update_replace(server, data):
     bob_prefix = bob_id[:3]
     # === Alice adds bob by id as POI/Orange
     nonce = new_nonce()
-    contacts = [{"id":bob_id}]
+    contacts = [{'id':bob_id, 'update_token': update_token(nonce, 0) }]
+    data.locations[0]['update_token'] = update_token(nonce, 1)
     locations = [ data.locations_in[0]]
-    server.add_update_tokens(nonce, contacts, locations)
     server.send_status_json(contacts = contacts, locations = locations, status = 2, nonce = nonce)
     time.sleep(1.5) # Make sure its a new time slot
     # === Bob polls
