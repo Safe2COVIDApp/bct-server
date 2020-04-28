@@ -146,7 +146,7 @@ class Client:
         self.listen(other.broadcast())
 
 #def test_pseudoclient_twopeople(server, data):
-def broken_test_pseudoclient_work(server, data):
+def test_pseudoclient_work(server, data):
     server.reset()
     logging.info('Started test_pseudoclient_twopeople')
     alice = Client(server = server, data = data)

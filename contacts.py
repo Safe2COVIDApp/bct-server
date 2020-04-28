@@ -109,6 +109,7 @@ class FSBackedThreeLevelDict():
         dir_name = '%s/%s/%s/%s' % (self.directory, chunks[0], chunks[1], chunks[2])
         return (chunks, dir_name)
 
+    # Insert value (obj) at key, keep updatetoken index to it
     def insert(self, key, value, date):
         if str != type(key):
             key = self._make_key(key)
@@ -129,13 +130,17 @@ class FSBackedThreeLevelDict():
             self.items[chunks[0]][chunks[1]][chunks[2]][key].append(date)
 
         os.makedirs(dir_name, 0o770, exist_ok = True)
-        file_path = '%s/%s.%s.%d.data'  % (dir_name, key, random_ascii(6), date)
+        file_name = '%s.%s.%d.data'  % (key, random_ascii(6), date)
+        file_path = '%s/%s'  % (dir_name, file_name)
         logger.info('writing %s to %s' % (value, file_path))
         with open(file_path, 'w') as file:
             json.dump(value, file)
         
         self._insert_disk(key)
         self.item_count += 1
+        update_token = value.get('updatetoken')
+        if update_token:
+            self.update_index[update_token] = file_name
         return
 
     def map_over_matching_data(self, key, since, now, start_pos = 0):
