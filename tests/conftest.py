@@ -3,9 +3,9 @@ from . import run_server
 class Data:
     def __init__(self):
         self.valid_ids = ['123456']
-        self.locations_in =  [{ "lat": 37.773972, "long": -122.431297 }]
-        self.locations_out = [{ "lat": 99.9999, "long": -99.999 }]
-        self.locations_box = { "minLat": 37, 'maxLat': 39, 'minLong': -123, 'maxLong': -122}
+        self.locations_in =  [{ "lat": 37.7739, "long": -122.4312 }]
+        self.locations_out = [{ "lat": 99.9999, "long": -99.9999 }]
+        self.locations_box = { "minLat": 37.70, 'maxLat': 37.80, 'minLong': -122.44, 'maxLong': -122.43}
         return
 
 @pytest.fixture(scope = "session")

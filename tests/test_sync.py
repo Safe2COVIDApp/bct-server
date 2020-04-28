@@ -24,6 +24,7 @@ def broken_test_sync():
             server_2.send_status_json(contacts = json_data_2)
             time.sleep(2)
             resp_1_2 = server_1.sync()
+            time.sleep(2)
             resp_2_2 = server_2.sync()
     assert resp_1_1.status_code == 200
     assert 'contacts' not in resp_1_1.json()
