@@ -10,7 +10,7 @@ from signal import SIGUSR1
 import json
 import os
 import rtree
-from lib import hash_nonce, fold_hash
+from lib import update_token, replacement_token
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -40,12 +40,9 @@ class Server:
         logger.info('before %s call' % endpoint_name)
         data = {}
         if nonce and kwargs.get('replaces'):
-            nexthash = hash_nonce(nonce)
-            updatetokens = []
-            for i in range(kwargs.get('length')):
-                updatetokens.append(fold_hash(nexthash))
-                nexthash = hash_nonce(nexthash)
-            data['updatetokens'] = updatetokens
+            data['updatetokens'] = [
+                update_token(replacement_token(nonce, i))
+                for i in range(kwargs.get('length'))]
         if contacts:
             data['contacts'] = contacts
         if locations:
@@ -104,17 +101,17 @@ class Server:
         logger.info('sent signal to server')
         return
 
-    def get_data_from_id(self, contact_id):
+    def get_data_from_id(self, contact_id, dict_type = 'contact_dict'):
         first_level = contact_id[0:2].upper()
         second_level = contact_id[2:4].upper()
         third_level = contact_id[4:6].upper()
-        dir_name = "%s/%s/%s/%s" % (self.directory, first_level, second_level, third_level)
+        dir_name = "%s/%s/%s/%s/%s" % (self.directory, dict_type, first_level, second_level, third_level)
         logger.info('in get_data_from_id')
         matches = []
         try:
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
-                    (code, date, ignore, extension) = file_name.split('.')
+                    (code, ignore, date_and_extension) = file_name.split(':')
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
         except FileNotFoundError:
@@ -122,24 +119,13 @@ class Server:
         return matches
 
     def get_data_to_match_hash(self, match_term):
-        idx = rtree.index.Index('%s/rtree' % self.directory) 
         matches = []
-        for obj in idx.intersection(idx.bounds, objects = True):
-        #    if match_term == obj.object['updatetoken']:
-            matches.append(obj.object)
+        for root, sub_dirs, files in os.walk('%s/spatial_dict' % self.directory):
+            for file_name in files:
+                if file_name.endswith('.data'):
+                    #    if match_term == obj.object['updatetoken']:
+                    matches.append(json.load(open(root + '/' + file_name)))
         return matches
-
-    def add_update_tokens(self, nonce, contacts, locations):
-        nexthash = hash_nonce(nonce)
-        if contacts:
-            for c in contacts:
-                c["updatetoken"] = fold_hash(nexthash)
-                nexthash = hash_nonce(nexthash)
-        if locations:
-            for l in locations:
-                l["updatetoken"] = fold_hash(nexthash)
-                nexthash = hash_nonce(nexthash)
-
 
 def get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
