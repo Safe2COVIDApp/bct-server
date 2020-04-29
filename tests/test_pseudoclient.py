@@ -84,7 +84,6 @@ class Client:
         location_replaces = [ loc.get('replaces') for loc in self.location_alerts if loc.get('replaces')]
 
         # Find updatetokens that have been replaced
-        # TODO-55 will change what store as replaces in data points
         id_updatetokens = [ update_token(rt) for rt in id_replaces ]
         location_updatetokens = [ update_token(rt) for rt in location_replaces ]
 
