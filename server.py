@@ -2,6 +2,7 @@ import argparse
 
 from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
+from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
 from twisted.python import log
@@ -15,6 +16,7 @@ import signal
 import atexit
 import sys
 from lib import set_current_time_for_testing
+import pdb
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -74,6 +76,51 @@ if config.get('servers'):
 allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET']
 
 
+def defered_function(function):
+    def _defered_function():
+        logging.info('in thread, running %s' % function)
+        result = function()
+        logging.info('ran, result is %s' % result)
+        return result
+    return _defered_function
+
+def resolve_all_functions(ret, request):
+    """
+    resolve_all_functions goes through the dictionary ret looking for any values tht are functions, if there are, then
+    it runs the function in a deferred thread with request, the key for that value and the dictionary as args.  
+    After the thread runs successfully the result of the function replaces the function value in the dictionary and we
+    iterate until all have been resolved
+    """
+    for key, value in ret.items():
+        if 'function' == type(value).__name__:
+            function_to_run_in_thread = defered_function(value)
+            logger.info('found a function for key %s, running as a deferred' % key)
+            defered = deferToThread(function_to_run_in_thread)
+            defered.addCallback(defered_result_available, key, ret, request)
+            defered.addErrback(defered_result_error)
+            return twserver.NOT_DONE_YET
+    return ret
+
+def defered_result_error(failure):
+    logger.error("Logging an uncaught exception",
+                 exc_info=(failure.type, failure.value, failure.tb))
+    request.setResponseCode(400)
+    request.write(json.dumps({'error':'internal error'}).encode())
+    request.finish()
+    return
+
+def defered_result_available(result, key, ret, request):
+    logger.info('got result for key %s of %s' % (key, result))
+    ret[key] = result
+    ret = resolve_all_functions(ret, request)
+    if twserver.NOT_DONE_YET != ret:
+        # ok, finally done, let's return it
+        logger.info('writing HTTP result of %s' % ret)
+        request.write(json.dumps(ret).encode())
+        request.finish()
+    return
+    
+    
 
 
 class Simple(resource.Resource):
@@ -108,18 +155,24 @@ class Simple(resource.Resource):
         request.responseHeaders.addRawHeader(b"content-type", b"application/json")
         if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
             ret =  contacts.execute_route(path, data, args)
-            #TODO-71 - this is clearly not right - need clarification on right way to do this
-            if isinstance(ret, str):
-                request.setResponseCode(302)
-                ret = {'error': ret}
+            if 'error' in ret:
+                request.setResponseCode(400)
+                ret = ret['error']
                 logger.info('error return is %s' % ret)
             else:
+                # if any values functuons in ret, then run then asynchronously and return None here
+                # if they aren't then return ret
+                
+                ret = resolve_all_functions(ret, request)
                 logger.info('legal return is %s' % ret)
         else:
             request.setResponseCode(402)
             ret = {"error":"no such request"}
             logger.info('return is %s' % ret)
-        return json.dumps(ret).encode('utf-8')
+        if twserver.NOT_DONE_YET != ret:
+            return json.dumps(ret).encode()
+        else:
+            return ret
             
 
 def sync_body(body, server):

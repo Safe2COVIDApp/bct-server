@@ -46,7 +46,7 @@ class FSBackedThreeLevelDict:
         for root, sub_dirs, files in os.walk(self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    file_name.replace('.data', '')
+                    file_name = file_name.replace('.data', '')
                     (code, floating_seconds) = file_name.split(':')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
@@ -255,7 +255,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         directory = directory + '/spatial_dict'
         os.makedirs(directory, 0o770, exist_ok = True)
         super().__init__(directory)
-        self.spatial_index = rtree.index.Index(directory + '/rtree')
+        self.spatial_index = rtree.index.Index()
         self.keys = {}          # Maps key_tuple to key_QQ1
         self.coords = {}        # Maps key_QQ1 to key_tuple
         return
@@ -426,9 +426,12 @@ class Contacts:
             for prefix in prefixes:
                 ids += self.contact_dict.map_over_matching_data(prefix)
 
-            ret['ids'] = []
-            for contact_id in ids:
-                ret['ids'] += self.contact_dict.map_over_json_blobs(contact_id, since, now)
+            def get_contact_id_data():
+                data = []
+                for contact_id in ids:
+                    data += self.contact_dict.map_over_json_blobs(contact_id, since, now)
+                    return data
+            ret['ids'] = get_contact_id_data
 
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { minLat...} ] }
