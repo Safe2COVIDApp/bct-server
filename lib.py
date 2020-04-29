@@ -32,7 +32,7 @@ def replacement_token(nonce, n):
 # Generate Update Token from Replacement Token
 # Requirements: Not reversable, confirmable i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
 def update_token(rt):
-    return fold_hash(hash_nonce(nonce))
+    return fold_hash(hash_nonce(rt))
 
 # Check that the rt is a correct rt for the ut.
 def confirm_update_token(ut, rt):

@@ -1,5 +1,5 @@
 import time
-from lib import new_nonce, update_token
+from lib import new_nonce, update_token, replacement_token
 
 
 def location_match(here, there):
@@ -35,8 +35,8 @@ def broken_test_seq_update_replace(server, data):
     bob_prefix = bob_id[:3]
     # === Alice adds bob by id as POI/Orange
     nonce = new_nonce()
-    contacts = [{'id':bob_id, 'update_token': update_token(nonce, 0) }]
-    data.locations[0]['update_token'] = update_token(nonce, 1)
+    contacts = [{'id':bob_id, 'update_token': update_token(replacement_token(nonce, 0)) }]
+    data.locations_in[0]['update_token'] = update_token(replacement_token(nonce, 1))
     locations = [ data.locations_in[0]]
     server.send_status_json(contacts = contacts, locations = locations, status = 2, nonce = nonce)
     time.sleep(1.5) # Make sure its a new time slot
@@ -64,7 +64,8 @@ def broken_test_seq_update_replace(server, data):
     assert len(bob_location_alerts) == 0
     time.sleep(1.0)  # Make sure its a new time slot
     # === Alice updates bob with correct nonce
-    server.status_update_json(status = 4, nonce = nonce3, replaces = nonce, length = 2)
+    updatetokens = [ update_token(replacement_token(nonce3, i)) for i in range(2)]
+    server.status_update_json(status = 4, replaces = nonce, updatetokens = updatetokens,  length = 2)
     time.sleep(1.0)  # Make sure its a new time slot
     # === Bob polls
     json_data = server.scan_status_json(contact_prefixes = [bob_prefix], locations = [ data.locations_box ], since = bob_since)

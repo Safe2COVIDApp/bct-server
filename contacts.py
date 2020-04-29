@@ -7,9 +7,6 @@ import time
 import calendar
 import datetime
 import rtree
-import string
-import random
-import copy
 from collections import defaultdict
 from lib import update_token, replacement_token, random_ascii
 
@@ -30,7 +27,7 @@ def _good_date(date, since = None, now = None):
     return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
 
 
-class FSBackedThreeLevelDict():
+class FSBackedThreeLevelDict:
 
     @staticmethod
     def dictionary_factory():
@@ -86,7 +83,7 @@ class FSBackedThreeLevelDict():
     def _make_key(self, key):
         """ 
         _make_key is defined in the subclass and returns a unique string (should be over 6 characters, but long enough to avoid collisions)
-        shthat can be used to index into the three level filesystem 
+        that can be used to index into the three level filesystem
 
         Parameters:
         ----------
@@ -95,21 +92,24 @@ class FSBackedThreeLevelDict():
         """
         raise NotImplementedError
     
-    def _insert_disk(self, key, value, date):
+    def _insert_disk(self, key):
         """
         _insert_disk does subclass dependent insertion into both memory and filesystem
         
         """
         raise NotImplementedError
 
+    def _key_string_from_blob(self, blob):
+        raise NotImplementedError
+
     def get_directory_name_and_chunks(self, key):
         chunks = [key[i:i+2] for i in [0, 2, 4]]
         dir_name = '%s/%s/%s/%s' % (self.directory, chunks[0], chunks[1], chunks[2])
-        return (chunks, dir_name)
+        return chunks, dir_name
 
     def insert(self, key, value, date):
         """
-        Insert value object at key with date, keep various indexes to it (updatetokenindex)
+        Insert value object at key with date, keep various indexes to it (update_index)
 
         Parameters:
         -----------
@@ -143,12 +143,12 @@ class FSBackedThreeLevelDict():
         
         self._insert_disk(key)
         self.item_count += 1
-        update_token = value.get('updatetoken')
-        if update_token:
-            self.update_index[update_token] = file_name
+        ut = value.get('updatetoken')
+        if ut:
+            self.update_index[ut] = file_name
         return
 
-    def map_over_matching_data(self, key, since, now, start_pos = 0):
+    def map_over_matching_data(self, key, since, now):
         raise NotImplementedError
 
     def __len__(self):
@@ -172,33 +172,33 @@ class FSBackedThreeLevelDict():
                     for key in self.items[key1][key2][key3].keys():
                         yield from self.map_over_json_blobs(key, since, now)
 
-    def get_filepath_from_file_name(self, file_name):
+    def get_file_path_from_file_name(self, file_name):
         (key_string, ignore, date, extension) = file_name.split('.')
-        chunks, dirname = self.self.get_directory_name_and_chunks(key_string)
+        chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         return "%s/%s" % (dir_name, file_name)
 
     #TODO-55 on dict
-    def update(self, update_token, updates, now):
+    def update(self, updating_token, updates, now):
         """
-        Look for an entry matching update_token, add a new one after modifying with updates
+        Look for an entry matching updating_token, add a new one after modifying with updates
 
-        :param update_token: folded hash 16 character string
+        :param updating_token: folded hash 16 character string
         :param updates:      { updatetoken, replaces, status }
         :param now:          unix time
         :return:             True if succeeded
         """
-        file_name = this.update_index[update_token]
+        file_name = self.update_index.get(updating_token)
         if file_name:
-            file_path = this.get_filepath_from_file_name(file_name)
+            file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(file_path))
             blob.update(updates)
-            key_string = this._key_string_from_blob(blob)
-            this.insert(key_string, blob, now)
+            key_string = self._key_string_from_blob(blob)
+            self.insert(key_string, blob, now)
             return True
         else:
             return False
 
-
+# TODO-DAN it complains class ContactDict must implement all abstract methods
 class ContactDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
@@ -255,11 +255,11 @@ class SpatialDict(FSBackedThreeLevelDict):
         return
 
     def _key_tuple_from_blob(self, blob):
-        return (float(blob['lat']), float(blob['long']))
+        return float(blob['lat']), float(blob['long'])
 
     # TODO-DAN this looks wrong - it refers to original_data not to blob ?
     def _load_key(self, key_string, blob):
-        key_tuple = self._key_tuple_from_blob(self, blob)
+        key_tuple = self._key_tuple_from_blob(blob)
         self.keys[key_tuple] = key_string
         self.coords[key_string] = key_tuple
         return
@@ -271,7 +271,6 @@ class SpatialDict(FSBackedThreeLevelDict):
         :param key_tuple: (float lat, float long)
         :return:
         """
-        (lat, long) = key_tuple
         key_string = self.keys.get(key_tuple)
         if not key_string:
             key_string = random_ascii(10).upper()
@@ -289,7 +288,7 @@ class SpatialDict(FSBackedThreeLevelDict):
     def bounds(self):
         return self.spatial_index.bounds
 
-    # TODO-DAN-DOCS what is key - I think its a bounding box object but not sure
+    # key is a bounding box tuple (minLat, minLong, maxLat, maxLong) as floats
     def map_over_matching_data(self, key, since, now):
         for obj in self.spatial_index.intersection(key, objects = True):  # [ object: [ obj, ob], object: [ obj, obj]]
             yield from self.map_over_json_blobs(obj.object, since, now)
@@ -299,65 +298,6 @@ class SpatialDict(FSBackedThreeLevelDict):
         key_tuple = self._key_tuple_from_blob(blob)
         return self._make_key(key_tuple)
 
-# MITRA -- keeping this class so you can refer to it, delete when you are ready to
-class SpatialIndex:
-    def __init__(self, file_path):
-        self.file_path = file_path
-        self.index = rtree.index.Index(file_path)
-        return
-
-
-    def get_objects_in_bounding_box(self, min_lat, min_long, max_lat, max_long):
-        objectss = self.index.intersection((min_lat, min_long, max_lat, max_long), objects = True)  # [ object: [ obj, ob], object: [ obj, obj]]
-        # Flatten array of arrays
-        objs = []
-        for o in objectss:
-            objs.extend(o.object)
-        return objs
-
-    def get_objects_at_point(self, lat, long):
-        return self.get_objects_in_bounding_box(lat, long, lat, long)
-
-    def append(self, lat, long, obj):
-        objects = self.get_objects_at_point(lat, long)
-        objects.append(obj)
-        self.insert(lat, long, obj = objects)
-        return obj
-
-    # Pair of append's return - for now assuming can rely on obj, but that might not be true (requires knowledge of rtree internals)
-    def retrieve(self, ptr):
-        return ptr
-
-    def insert(self, lat, long, obj):
-        self.index.insert(int(lat * long),  (lat, long, lat, long), obj = obj)
-        self.flush()
-        return
-        
-    @property
-    def bounds(self):
-        return self.index.bounds
-    
-    def flush(self):
-        # slow...
-        self.index.close()
-        self.index = rtree.index.Index(self.file_path)
-        return
-
-    def close(self):
-        self.index.close()
-        return
-    
-    def __len__(self):
-        return self.index.get_size()
-
-    def map_over_objects(self, bounding_box = None):
-        if 0 != len(self):
-            if not bounding_box:
-                bounding_box = self.index.bounds
-            for objs in self.index.intersection(bounding_box, objects = True): # [ object: [ obj ] ]
-                for obj in objs.object:
-                    yield obj
-        return
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -392,6 +332,7 @@ class Contacts:
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
         self.contact_dict = ContactDict(self.directory_root)
+        self.unused_update_tokens = {}
         return
 
 
@@ -430,7 +371,7 @@ class Contacts:
 
     def _update(self, updatetoken, updates, now):
         # TODO-55 test if can do this without the "["
-        return any( [this_dict.update(updatetoken, updates, now) for this_dict in [self.contact_dict, self.spatial_dict] ])
+        return any(this_dict.update(updatetoken, updates, now) for this_dict in [self.contact_dict, self.spatial_dict])
 
     # status_update POST
     # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
@@ -442,14 +383,16 @@ class Contacts:
         if length:
             updatetokens = data.get('updatetokens', [])
             for i in range(length):
+                rt = replacement_token(data.get('replaces'), i)
+                ut = update_token(rt)
                 updates = {
-                    'replaces': replacement_token(data.get('replaces'), i),
+                    'replaces': rt,
                     'status': data.get('status'),
                     'updatetoken': updatetokens[i]
                 }  # SEE-OTHER-ADD-FIELDS
                 # If some of the updatetokens are not found, it might be a sync issue, hold the update tokens till sync comes in
-                if not self._update(updatetoken, updates, now):
-                    self.unused_update_tokens[updatetoken] = updates
+                if not self._update(ut, updates, now):
+                    self.unused_update_tokens[ut] = updates
                     # TODO-55 process unused_update_tokens later
         return {"status": "ok"}
 
@@ -475,7 +418,6 @@ class Contacts:
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { minLat...} ] }
         req_locations = data.get('locations')
-        locations = []
         if req_locations:
             ret['locations'] = []
             for bounding_box in req_locations:
@@ -489,7 +431,7 @@ class Contacts:
     @register_method(route = '/sync')
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
-        now = time.gmtime()  # Do this at the start of the process, we want to guarrantee have all before this time (even if multithreading)
+        now = time.gmtime()  # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
         since_string = args.get('since')
         if since_string:
             since_string = since_string[0].decode()
