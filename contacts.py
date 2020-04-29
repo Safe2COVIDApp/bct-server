@@ -8,7 +8,7 @@ import calendar
 import datetime
 import rtree
 from collections import defaultdict
-from lib import update_token, replacement_token, random_ascii
+from lib import update_token, replacement_token, random_ascii, current_time
 
 def unix_time(dt):
     return int(dt.timestamp())
@@ -47,7 +47,7 @@ class FSBackedThreeLevelDict:
             for file_name in files:
                 if file_name.endswith('.data'):
                     file_name.replace('.data', '')
-                    (code, ignore, floating_seconds) = file_name.split(':')
+                    (code, floating_seconds) = file_name.split(':')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
                     floating_seconds = float(floating_seconds)
@@ -136,7 +136,7 @@ class FSBackedThreeLevelDict:
             self.items[chunks[0]][chunks[1]][chunks[2]][key].append(date)
 
         os.makedirs(dir_name, 0o770, exist_ok = True)
-        file_name = '%s:%s:%f.data'  % (key, random_ascii(6), date)
+        file_name = '%s:%f.data'  % (key, date)
         file_path = '%s/%s' % (dir_name, file_name)
         logger.info('writing %s to %s' % (value, file_path))
         with open(file_path, 'w') as file:
@@ -162,7 +162,7 @@ class FSBackedThreeLevelDict:
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
                     file_name = file_name.replace('.data', '')
-                    (code, ignore, date) = file_name.split(':')
+                    (code, date) = file_name.split(':')
                     if (code == key_string) and _good_date(float(date), since, now):
                         logger.info('matched, returning %s/%s' % (dir_name, file_name))
                         yield json.load(open(('%s/%s.data' % (dir_name, file_name))))
@@ -180,7 +180,7 @@ class FSBackedThreeLevelDict:
                         yield from self.map_over_json_blobs(key, since, now)
 
     def get_file_path_from_file_name(self, file_name):
-        (key_string, ignore, date_and_extension) = file_name.split(':')
+        (key_string, date_and_extension) = file_name.split(':')
         chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         return "%s/%s" % (dir_name, file_name)
 
@@ -358,7 +358,7 @@ class Contacts:
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
-        now = int(time.time())
+        floating_time = current_time()
 
         repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
@@ -372,22 +372,21 @@ class Contacts:
         for contact in data.get('contacts', []):
             contact.update(repeated_fields)
             contact_id = contact['id']
-            self.contact_dict.insert(contact_id, contact, now)
+            self.contact_dict.insert(contact_id, contact, floating_time)
         for location in data.get('locations', []):
-            location['date'] = now
             location.update(repeated_fields)
-            self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, now)
+            self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, floating_time)
         return {"status": "ok"}
 
-    def _update(self, updatetoken, updates, now):
-        return any(this_dict.update(updatetoken, updates, now) for this_dict in [self.contact_dict, self.spatial_dict])
+    def _update(self, updatetoken, updates, floating_time):
+        return any(this_dict.update(updatetoken, updates, floating_time) for this_dict in [self.contact_dict, self.spatial_dict])
 
     # status_update POST
     # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
-        now = int(time.time())
+        now = current_time()
         length = data.get('length') # This is how many to replace
         if length:
             updatetokens = data.get('updatetokens', [])
@@ -426,6 +425,7 @@ class Contacts:
             ids = []
             for prefix in prefixes:
                 ids += self.contact_dict.map_over_matching_data(prefix)
+
             ret['ids'] = []
             for contact_id in ids:
                 ret['ids'] += self.contact_dict.map_over_json_blobs(contact_id, since, now)

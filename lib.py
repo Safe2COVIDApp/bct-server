@@ -3,7 +3,9 @@
 import hashlib
 import string
 import random
-
+import time
+import logging
+logger = logging.getLogger(__name__)
 
 # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
 # verify(nonce, hashupdates(nonce)) == true;
@@ -38,3 +40,20 @@ def update_token(rt):
 # Check that the rt is a correct rt for the ut.
 def confirm_update_token(ut, rt):
     return update_token(rt) == ut
+
+# current_time is a variable that CAN be set in testing mode (useful in testing so we remove randomness and allow tests
+# without sleeping)
+override_time_for_testing = False
+
+def current_time():
+    if override_time_for_testing:
+        logging
+        return override_time_for_testing
+    else:
+        return time.time()
+
+def set_current_time_for_testing(time):
+    global override_time_for_testing
+    override_time_for_testing = time
+    return
+

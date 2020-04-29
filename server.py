@@ -4,9 +4,6 @@ from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
-#from twisted.python import log
-
-
 from twisted.python import log
 import logging
 import json
@@ -17,6 +14,7 @@ import uuid
 import signal
 import atexit
 import sys
+from lib import set_current_time_for_testing
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -89,6 +87,13 @@ class Simple(resource.Resource):
             request.setResponseCode(302)
             return 'ok'.encode()
             
+        # we have support for setting time for testing purposes
+        x_time_for_testing = request.requestHeaders.getRawHeaders('X-Testing-Time')
+        if ('True' == config.get('Testing')) and x_time_for_testing:
+            x_time_for_testing = float(x_time_for_testing[0])
+            logger.info('In testing and current time is being overridden with %f' % x_time_for_testing)
+            set_current_time_for_testing(x_time_for_testing)
+
         content_type_headers = request.requestHeaders.getRawHeaders('content-type')
         if content_type_headers and ('application/json' in content_type_headers):
             data = json.load(request.content)
