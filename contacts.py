@@ -47,16 +47,16 @@ class FSBackedThreeLevelDict:
             for file_name in files:
                 if file_name.endswith('.data'):
                     file_name.replace('.data', '')
-                    (code, ignore, date) = file_name.split(':')
+                    (code, ignore, floating_seconds) = file_name.split(':')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
-                    date = float(date)
-                    dates = [date]
+                    floating_seconds = float(floating_seconds)
+                    floating_seconds_list = [floating_seconds]
                     if code in contact_dates:
-                        dates = contact_dates[code]
-                        dates.append(date)
+                        floating_seconds_list = contact_dates[code]
+                        floating_seconds_list.append(floating_seconds)
                     self.item_count += 1
-                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = dates
+                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_list
 
                     # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
                     blob = json.load(open(('%s/%s/%s/%s/%s.data' % (self.directory, dirs[0], dirs[1], dirs[2], file_name))))
@@ -281,14 +281,17 @@ class SpatialDict(FSBackedThreeLevelDict):
         key_string = self.keys.get(key_tuple)
         if not key_string:
             key_string = random_ascii(10).upper()
-            self.keys[key_tuple] = key_string
             self.coords[key_string] = key_tuple
         return key_string
 
     def _insert_disk(self, key_string):
-        (lat, long) = self.coords[key_string]
-        # we can always use the 0 for the id, duplicates are allowed
-        self.spatial_index.insert(0,  (lat, long, lat, long), obj = key_string)
+        (lat, long) = coords = self.coords[key_string]
+
+        # only insert if coords not currently in keys
+        if coords not in self.keys:
+            # we can always use the 0 for the id, duplicates are allowed
+            self.spatial_index.insert(0,  (lat, long, lat, long), obj = key_string)
+            self.keys[coords] = key_string
         return
 
     @property
