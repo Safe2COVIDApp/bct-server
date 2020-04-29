@@ -184,7 +184,6 @@ class FSBackedThreeLevelDict:
         chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         return "%s/%s" % (dir_name, file_name)
 
-    #TODO-55 on dict
     def update(self, updating_token, updates, now):
         """
         Look for an entry matching updating_token, add a new one after modifying with updates
@@ -264,7 +263,6 @@ class SpatialDict(FSBackedThreeLevelDict):
     def _key_tuple_from_blob(self, blob):
         return float(blob['lat']), float(blob['long'])
 
-    # TODO-DAN this looks wrong - it refers to original_data not to blob ?
     def _load_key(self, key_string, blob):
         key_tuple = self._key_tuple_from_blob(blob)
         self.keys[key_tuple] = key_string
@@ -380,7 +378,6 @@ class Contacts:
         return {"status": "ok"}
 
     def _update(self, updatetoken, updates, now):
-        # TODO-55 test if can do this without the "["
         return any(this_dict.update(updatetoken, updates, now) for this_dict in [self.contact_dict, self.spatial_dict])
 
     # status_update POST
@@ -403,7 +400,7 @@ class Contacts:
                 # If some of the updatetokens are not found, it might be a sync issue, hold the update tokens till sync comes in
                 if not self._update(ut, updates, now):
                     self.unused_update_tokens[ut] = updates
-                    # TODO-55 process unused_update_tokens later
+                    # TODO-80 process unused_update_tokens later
         return {"status": "ok"}
 
     # scan_status post
@@ -494,5 +491,4 @@ class Contacts:
             logger.info('resetting ids')
             self.spatial_dict = SpatialDict(self.directory_root)
             self.contact_dict = ContactDict(self.directory_root)
-            # TODO-DAN - I think if its not in self.testing it should return a 403
         return

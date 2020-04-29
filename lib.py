@@ -37,5 +37,3 @@ def update_token(rt):
 # Check that the rt is a correct rt for the ut.
 def confirm_update_token(ut, rt):
     return update_token(rt) == ut
-
-# TODO-55 need to change from fold_hash and hash_nonce to replacement_token and update_token in contacts.py
