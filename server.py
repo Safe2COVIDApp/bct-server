@@ -5,6 +5,9 @@ from twisted.internet import reactor, task
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
 #from twisted.python import log
+
+
+from twisted.python import log
 import logging
 import json
 from contacts import Contacts
@@ -13,6 +16,7 @@ import urllib.request
 import uuid
 import signal
 import atexit
+import sys
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -20,6 +24,7 @@ parser.add_argument('--config_file', default='config.ini',
 args = parser.parse_args()
 
 
+log.startLogging(sys.stderr)
 
 
 # self_string is used for syncing from neighbors, to ignore a sync from ourself
@@ -55,6 +60,7 @@ atexit.register(contacts.close)
 servers_file_path = '%s/.servers' % config['directory']
 logging.basicConfig(level = config['log_level'].upper())
 logger = logging.getLogger(__name__)
+logger.info('starting server')
 
 try:
     servers = json.load(open(servers_file_path))
