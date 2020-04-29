@@ -1,4 +1,3 @@
-from lib import random_ascii
 import random
 import logging
 import time
@@ -25,7 +24,7 @@ class Client:
 
         # Access generic test functions and data
         self.server = server
-        self.data = data;
+        self.data = data
 
         # Initialize arrays where we remember things
         self.ids_used = []
@@ -63,10 +62,10 @@ class Client:
 
     # This is a very crude "_close_to" function, could obviously be much better.
     def _close_to(self, l, loc):
-        return ( abs(l['lat']-loc['lat'])+abs(l['long']-loc['long']) * scale1meter <= self.safe_distance)
+        return abs(l['lat']-loc['lat'])+abs(l['long']-loc['long']) * scale1meter <= self.safe_distance
 
     # Received location matches if its close to any of the locations I have been to
-    def _locationmatch(self,loc):
+    def _location_match(self,loc):
         return any(self._close_to(l, loc) for l in self.locations)
 
     def poll(self):
@@ -75,10 +74,10 @@ class Client:
 
         self.id_alerts.extend([i for i in json_data['ids'] if (i.get('id') in self.ids_used)])
 
-        # Filter incoming locaton updates for those close to where we have been, but exclude any of our own (based on matching updatetoken
+        # Filter incoming location updates for those close to where we have been, but exclude any of our own (based on matching updatetoken
         existing_location_updatetokens = [l.get('updatetoken') for l in self.locations]
         self.location_alerts.extend(
-            filter(lambda loc: self._locationmatch(loc) and not loc.get('updatetoken') in existing_location_updatetokens,
+            filter(lambda loc: self._location_match(loc) and not loc.get('updatetoken') in existing_location_updatetokens,
                    json_data['locations']))
 
         # Find the replaces tokens for both ids and locations - these are the locations this data point replaces
@@ -108,8 +107,8 @@ class Client:
         return self.current_id
 
     # Simulate hearing an id
-    def listen(self, id):
-        self.observed_ids.append({'id': id})
+    def listen(self, contact_id):
+        self.observed_ids.append({'id': contact_id})
 
     def _preprocessed_locations(self, location):
         loc = copy.deepcopy(location)
@@ -155,7 +154,7 @@ class Client:
         self.poll()
 
     # Randomly move up to 10 meters in any direction
-    def randwalk(self):
+    def random_walk(self):
         self.move_to({
             'lat': self.current_location.get('lat') + random.randrange(-10, 10) / (10*scale1meter),
             'long': self.current_location.get('long') + random.randrange(-10, 10) / (10*scale1meter)
@@ -165,13 +164,12 @@ class Client:
     def observes(self, other):
         self.listen(other.broadcast())
 
-#def test_pseudoclient_twopeople(server, data):
 def test_pseudoclient_work(server, data):
     server.reset()
-    logging.info('Started test_pseudoclient_twopeople')
+    logging.info('Started test_pseudoclient_work')
     alice = Client(server = server, data = data)
     bob = Client(server = server, data = data)
-    bob.randwalk() # Bob has been in two locations now
+    bob.random_walk() # Bob has been in two locations now
     alice.observes(bob)
     bob.observes(alice)
     alice.update_status(STATUS_INFECTED)
@@ -189,4 +187,4 @@ def test_pseudoclient_work(server, data):
     assert len(bob.id_alerts) == 2
     assert len(bob.location_alerts) == 2
     assert bob.status == STATUS_HEALTHY
-    logging.info('Completed test_pseudoclient_twopeople')
+    logging.info('Completed test_pseudoclient_work')

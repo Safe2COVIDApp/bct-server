@@ -2,8 +2,6 @@ import time
 import logging
 logger = logging.getLogger(__name__)
 from . import run_server_in_context, get_free_port, sort_list_of_dictionaries
-import pdb
-
 
 def test_sync():
     port_1 = get_free_port()

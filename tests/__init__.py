@@ -4,12 +4,10 @@ from tempfile import TemporaryDirectory
 import socket
 import time
 import requests
-import sys
 import shutil
 from signal import SIGUSR1
 import json
 import os
-import rtree
 from lib import update_token, replacement_token
 from contextlib import contextmanager
 

@@ -15,6 +15,7 @@ def fold_hash(hash40):
     return "%X" % (int(hash40[:20], 16) ^ int(hash40[20:],16))
 
 def random_ascii(length):
+    # noinspection PyUnusedLocal
     return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
 
 def new_nonce(seed = None):
@@ -25,12 +26,12 @@ def new_nonce(seed = None):
 # This group of functions centralize the process and cryptography for nonce -> replacement_token -> update_token
 
 # Generate Replacement token from nonce + n (which should increment)
-# Requirements - none reversable, cannot be used to find the nonce, or any other replacment_token
+# Requirements - none reversible, cannot be used to find the nonce, or any other replacement_token
 def replacement_token(nonce, n):
     return hash_nonce(nonce + str(n))
 
 # Generate Update Token from Replacement Token
-# Requirements: Not reversable, confirmable i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
+# Requirements: Not reversible, confirmable i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
 def update_token(rt):
     return fold_hash(hash_nonce(rt))
 
