@@ -17,9 +17,11 @@ STATUS_HEALTHY = 4
 class Client:
 
     def __init__(self, server = None, data = None, **kwargs):
-        self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
+        self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically TODO-70 - get from signon
         self.id_length = 32 # How many characters in hex id. Normally would be 128 bits = 32 chars
         self.safe_distance = 2 # Meters
+        self.location_resolution = 4 # lat/long decimal points TODO-70 - get from signon
+        self.bounding_box_minimum_dp = 2 # TODO-70 - get from signon
 
         # Access generic test functions and data
         self.server = server
@@ -48,12 +50,12 @@ class Client:
         self.locations.append(loc)
         self.current_location = loc
 
-    def box(self):
+    def _box(self):
         return {
-            'minLat': min([loc['lat'] for loc in self.locations]),
-            'minLong': min([loc['long'] for loc in self.locations]),
-            'maxLat': max([loc['lat'] for loc in self.locations]),
-            'maxLong': max([loc['long'] for loc in self.locations])
+            'minLat': round(min([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'minLong': round(min([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'maxLat': round(max([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'maxLong': round(max([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
         }
 
     def _prefixes(self):
@@ -68,7 +70,7 @@ class Client:
         return any(self._close_to(l, loc) for l in self.locations)
 
     def poll(self):
-        json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self.box()], since = self.since)
+        json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()], since = self.since)
         self.since = json_data.get('now')
 
         self.id_alerts.extend([i for i in json_data['ids'] if (i.get('id') in self.ids_used)])
@@ -79,7 +81,7 @@ class Client:
             filter(lambda loc: self._locationmatch(loc) and not loc.get('updatetoken') in existing_location_updatetokens,
                    json_data['locations']))
 
-        # Find the replaces tokens for both ids and locations
+        # Find the replaces tokens for both ids and locations - these are the locations this data point replaces
         id_replaces = [ i.get('replaces') for i in self.id_alerts if i.get('replaces')]
         location_replaces = [ loc.get('replaces') for loc in self.location_alerts if loc.get('replaces')]
 
@@ -109,6 +111,12 @@ class Client:
     def listen(self, id):
         self.observed_ids.append({'id': id})
 
+    def _preprocessed_locations(self, location):
+        loc = copy.deepcopy(location)
+        for k in ['lat', 'long']:
+            loc[k] = round(location[k], self.location_resolution)
+        return loc
+
     def next_updatetoken(self):
         if not self.nonce:
             self.nonce = new_nonce()
@@ -134,7 +142,7 @@ class Client:
                 for l in self.locations:
                     l['updatetoken'] = self.next_updatetoken()
                 self.server.send_status_json(
-                    contacts=copy.deepcopy(self.observed_ids), locations=copy.deepcopy(self.locations),
+                    contacts=copy.deepcopy(self.observed_ids), locations=[ self._preprocessed_locations(loc) for loc in self.locations],
                     status=self.status, nonce=self.nonce, replaces = replaces)
 
     # Action taken every 15 seconds
@@ -146,11 +154,11 @@ class Client:
     def cron_hourly(self):
         self.poll()
 
-    # Randomly move up to a meter in any direction
+    # Randomly move up to 10 meters in any direction
     def randwalk(self):
         self.move_to({
-            'lat': self.current_location.get('lat') + random.randrange(-scale1meter, scale1meter) / scale1meter,
-            'long': self.current_location.get('long') + random.randrange(-scale1meter, scale1meter) / scale1meter
+            'lat': self.current_location.get('lat') + random.randrange(-10, 10) / (10*scale1meter),
+            'long': self.current_location.get('long') + random.randrange(-10, 10) / (10*scale1meter)
         })
 
     # Simulate what happens when this client "observes" another, i.e. here's its bluetooth

@@ -340,6 +340,8 @@ class Contacts:
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
         self.contact_dict = ContactDict(self.directory_root)
+        self.bb_min_dp = config.getint('bounding_box_minimum_dp')
+        self.bb_max_size = config.getfloat('bounding_box_maximum_size')
         self.unused_update_tokens = {}
         return
 
@@ -408,6 +410,10 @@ class Contacts:
     def scan_status(self, data, args):
         since = data.get('since')
         now = time.gmtime()
+        req_locations = data.get('locations', [])
+        if not self.check_bounding_box(req_locations):
+            # TODO-65 TODO-68 TODO-DAN how to return an error in twisted ?
+            return "ERROR bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
         ret = {}
         if since:
             ret['since'] = since
@@ -492,3 +498,13 @@ class Contacts:
             self.spatial_dict = SpatialDict(self.directory_root)
             self.contact_dict = ContactDict(self.directory_root)
         return
+
+    def check_bounding_box(self, bb_arr):
+        for bb in bb_arr:
+            for k in ['maxLong', 'minLong', 'maxLat', 'maxLong']:
+                v = bb.get(k)
+                if (round(v, self.bb_min_dp) != v):
+                    return False
+            if (abs(bb.get('maxLong')-bb.get('minLong')) * abs(bb.get('maxLat')-bb.get('minLat'))) > self.bb_max_size:
+                return False
+        return True

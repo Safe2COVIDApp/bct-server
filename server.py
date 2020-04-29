@@ -102,7 +102,13 @@ class Simple(resource.Resource):
         request.responseHeaders.addRawHeader(b"content-type", b"application/json")
         if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
             ret =  contacts.execute_route(path, data, args)
-            logger.info('legal return is %s' % ret)
+            #TODO-71 - this is clearly not right - need clarification on right way to do this
+            if isinstance(ret, str):
+                request.setResponseCode(302)
+                ret = {'error': ret}
+                logger.info('error return is %s' % ret)
+            else:
+                logger.info('legal return is %s' % ret)
         else:
             request.setResponseCode(402)
             ret = {"error":"no such request"}
