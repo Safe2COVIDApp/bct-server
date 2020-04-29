@@ -46,10 +46,11 @@ class FSBackedThreeLevelDict:
         for root, sub_dirs, files in os.walk(self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    (code, ignore, date, extension) = file_name.split('.')
+                    file_name.replace('.data', '')
+                    (code, ignore, date) = file_name.split(':')
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
-                    date = int(date)
+                    date = float(date)
                     dates = [date]
                     if code in contact_dates:
                         dates = contact_dates[code]
@@ -58,7 +59,7 @@ class FSBackedThreeLevelDict:
                     self.items[dirs[0]][dirs[1]][dirs[2]][code] = dates
 
                     # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
-                    blob = json.load(open(('%s/%s/%s/%s/%s' % (self.directory, dirs[0], dirs[1], dirs[2], file_name))))
+                    blob = json.load(open(('%s/%s/%s/%s/%s.data' % (self.directory, dirs[0], dirs[1], dirs[2], file_name))))
                     updatetoken = blob.get('updatetoken')
                     if updatetoken:
                         self.update_index[updatetoken] = file_name
@@ -135,7 +136,7 @@ class FSBackedThreeLevelDict:
             self.items[chunks[0]][chunks[1]][chunks[2]][key].append(date)
 
         os.makedirs(dir_name, 0o770, exist_ok = True)
-        file_name = '%s.%s.%d.data'  % (key, random_ascii(6), date)
+        file_name = '%s:%s:%f.data'  % (key, random_ascii(6), date)
         file_path = '%s/%s' % (dir_name, file_name)
         logger.info('writing %s to %s' % (value, file_path))
         with open(file_path, 'w') as file:
@@ -159,11 +160,12 @@ class FSBackedThreeLevelDict:
         logger.info('looking for %s in %s/%s' % (key_string, chunks, dir_name))
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
-                if file_name.endswith('data'):
-                    (code, ignore, date, extension) = file_name.split('.')
-                    if (code == key_string) and _good_date(int(date), since, now):
+                if file_name.endswith('.data'):
+                    file_name = file_name.replace('.data', '')
+                    (code, ignore, date) = file_name.split(':')
+                    if (code == key_string) and _good_date(float(date), since, now):
                         logger.info('matched, returnding %s/%s' % (dir_name, file_name))
-                        yield json.load(open(('%s/%s' % (dir_name, file_name))))
+                        yield json.load(open(('%s/%s.data' % (dir_name, file_name))))
                     else:
                         logger.info('did not matched, returnding %s/%s' % (dir_name, file_name))
 
@@ -178,7 +180,7 @@ class FSBackedThreeLevelDict:
                         yield from self.map_over_json_blobs(key, since, now)
 
     def get_file_path_from_file_name(self, file_name):
-        (key_string, ignore, date, extension) = file_name.split('.')
+        (key_string, ignore, date_and_extension) = file_name.split(':')
         chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         return "%s/%s" % (dir_name, file_name)
 

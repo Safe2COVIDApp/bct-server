@@ -111,7 +111,7 @@ class Server:
         try:
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
-                    (code, date, ignore, extension) = file_name.split('.')
+                    (code, ignore, date_and_extension) = file_name.split(':')
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
         except FileNotFoundError:
