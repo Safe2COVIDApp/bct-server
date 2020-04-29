@@ -136,7 +136,7 @@ class FSBackedThreeLevelDict:
 
         os.makedirs(dir_name, 0o770, exist_ok = True)
         file_name = '%s.%s.%d.data'  % (key, random_ascii(6), date)
-        file_path = '%s/%s'  % (dir_name, file_name)
+        file_path = '%s/%s' % (dir_name, file_name)
         logger.info('writing %s to %s' % (value, file_path))
         with open(file_path, 'w') as file:
             json.dump(value, file)
@@ -148,7 +148,7 @@ class FSBackedThreeLevelDict:
             self.update_index[ut] = file_name
         return
 
-    def map_over_matching_data(self, key, since, now):
+    def map_over_matching_data(self, key):
         raise NotImplementedError
 
     def __len__(self):
@@ -156,12 +156,17 @@ class FSBackedThreeLevelDict:
 
     def map_over_json_blobs(self, key_string, since, now):
         chunks, dir_name = self.get_directory_name_and_chunks(key_string)
+        logger.info('looking for %s in %s/%s' % (key_string, chunks, dir_name))
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
                     if (code == key_string) and _good_date(int(date), since, now):
+                        logger.info('matched, returnding %s/%s' % (dir_name, file_name))
                         yield json.load(open(('%s/%s' % (dir_name, file_name))))
+                    else:
+                        logger.info('did not matched, returnding %s/%s' % (dir_name, file_name))
+
 
         return
 
@@ -211,14 +216,14 @@ class ContactDict(FSBackedThreeLevelDict):
         return
 
 
-    def _map_over_matching_contacts(self, prefix, ids, since, now, start_pos = 0):
-        logger.info('_map_over_matching_contacts called with %s, %s, %s, %s' % (prefix, ids.keys(), since, now))
+    def _map_over_matching_contacts(self, prefix, ids, start_pos = 0):
+        logger.info('_map_over_matching_contacts called with %s, %s' % (prefix, ids.keys()))
         if start_pos < 6:
             this_prefix = prefix[start_pos:]
             if len(this_prefix) >= 2:
                 ids = ids.get(this_prefix[0:2])
                 if ids:
-                    yield from self._map_over_matching_contacts(prefix, ids, since, now, start_pos + 2)
+                    yield from self._map_over_matching_contacts(prefix, ids, start_pos + 2)
             else:
                 if 0 == len(this_prefix):
                     prefixes = [('%02x' % i).upper() for i in range(0,256)]
@@ -228,15 +233,15 @@ class ContactDict(FSBackedThreeLevelDict):
                 for this_prefix in prefixes:
                     these_ids = ids.get(this_prefix)
                     if these_ids:
-                        yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
+                        yield from self._map_over_matching_contacts(prefix, these_ids, start_pos + 2)
         else:
             for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
-                yield from self.map_over_json_blobs(contact_id, since, now)
+                yield contact_id
         return
 
 
-    def map_over_matching_data(self, key, since, now):
-        yield from self._map_over_matching_contacts(key, self.items, since, now)
+    def map_over_matching_data(self, key):
+        yield from self._map_over_matching_contacts(key, self.items)
         return
 
 
@@ -289,9 +294,9 @@ class SpatialDict(FSBackedThreeLevelDict):
         return self.spatial_index.bounds
 
     # key is a bounding box tuple (minLat, minLong, maxLat, maxLong) as floats
-    def map_over_matching_data(self, key, since, now):
+    def map_over_matching_data(self, key):
         for obj in self.spatial_index.intersection(key, objects = True):  # [ object: [ obj, ob], object: [ obj, obj]]
-            yield from self.map_over_json_blobs(obj.object, since, now)
+            yield obj.object
         return
 
     def _key_string_from_blob(self, blob):
@@ -410,20 +415,24 @@ class Contacts:
 
         prefixes = data.get('contact_prefixes')
         if prefixes:
-            ret['ids'] = []
+            ids = []
             for prefix in prefixes:
-                for blob in self.contact_dict.map_over_matching_data(prefix, since, now):
-                    ret['ids'].append(blob)
+                ids += self.contact_dict.map_over_matching_data(prefix)
+            ret['ids'] = []
+            for contact_id in ids:
+                ret['ids'] += self.contact_dict.map_over_json_blobs(contact_id, since, now)
 
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { minLat...} ] }
         req_locations = data.get('locations')
         if req_locations:
+            locations = []
             ret['locations'] = []
             for bounding_box in req_locations:
-                for blob in self.spatial_dict.map_over_matching_data((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']),
-                                                                     since, now):
-                    ret['locations'].append(blob)
+                locations += self.spatial_dict.map_over_matching_data((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']))
+            logger.info('locations are: %s' % locations)
+            for location_id in locations:
+                ret['locations'] += self.spatial_dict.map_over_json_blobs(location_id, since, now)
         ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', now)
         return ret
 
