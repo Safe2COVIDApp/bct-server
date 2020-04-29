@@ -110,7 +110,7 @@ class Client:
         self.observed_ids.append({'id': id})
 
     def next_updatetoken(self):
-        if (!self.nonce):
+        if not self.nonce:
             self.nonce = new_nonce()
             self.length = 0
         ut = update_token(replacement_token(self.nonce, self.length))

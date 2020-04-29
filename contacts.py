@@ -99,8 +99,6 @@ class FSBackedThreeLevelDict():
         """
         _insert_disk does subclass dependent insertion into both memory and filesystem
         
-        Parameters:
-        -----------
         """
         raise NotImplementedError
 
@@ -109,8 +107,16 @@ class FSBackedThreeLevelDict():
         dir_name = '%s/%s/%s/%s' % (self.directory, chunks[0], chunks[1], chunks[2])
         return (chunks, dir_name)
 
-    # Insert value (obj) at key, keep updatetoken index to it
     def insert(self, key, value, date):
+        """
+        Insert value object at key with date, keep various indexes to it (updatetokenindex)
+
+        Parameters:
+        -----------
+        key -- String || Object Either the contact id, or tuple or lat/long
+        value -- Dict object needing storing
+        date -- date (unix time)
+        """
         if str != type(key):
             key = self._make_key(key)
         if value in self.map_over_json_blobs(key, None, None):
@@ -119,7 +125,6 @@ class FSBackedThreeLevelDict():
         if 6 > len(key):
             raise Exception("Key %s must by at least 6 characters long" % key)
         key = key.upper()
-
 
         chunks, dir_name = self.get_directory_name_and_chunks(key)
         
@@ -148,14 +153,14 @@ class FSBackedThreeLevelDict():
 
     def __len__(self):
         return self.item_count
-    
-    def map_over_json_blobs(self, key, since, now):
-        chunks, dir_name = self.get_directory_name_and_chunks(key)
+
+    def map_over_json_blobs(self, key_string, since, now):
+        chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         if os.path.isdir(dir_name):
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('data'):
                     (code, ignore, date, extension) = file_name.split('.')
-                    if (code == key) and _good_date(int(date), since, now):
+                    if (code == key_string) and _good_date(int(date), since, now):
                         yield json.load(open(('%s/%s' % (dir_name, file_name))))
 
         return
@@ -167,7 +172,32 @@ class FSBackedThreeLevelDict():
                     for key in self.items[key1][key2][key3].keys():
                         yield from self.map_over_json_blobs(key, since, now)
 
-        
+    def get_filepath_from_file_name(self, file_name):
+        (key_string, ignore, date, extension) = file_name.split('.')
+        chunks, dirname = self.self.get_directory_name_and_chunks(key_string)
+        return "%s/%s" % (dir_name, file_name)
+
+    #TODO-55 on dict
+    def update(self, update_token, updates, now):
+        """
+        Look for an entry matching update_token, add a new one after modifying with updates
+
+        :param update_token: folded hash 16 character string
+        :param updates:      { updatetoken, replaces, status }
+        :param now:          unix time
+        :return:             True if succeeded
+        """
+        file_name = this.update_index[update_token]
+        if file_name:
+            file_path = this.get_filepath_from_file_name(file_name)
+            blob = json.load(open(file_path))
+            blob.update(updates)
+            key_string = this._key_string_from_blob(blob)
+            this.insert(key_string, blob, now)
+            return True
+        else:
+            return False
+
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -209,25 +239,38 @@ class ContactDict(FSBackedThreeLevelDict):
         yield from self._map_over_matching_contacts(key, self.items, since, now)
         return
 
+
+    def _key_string_from_blob(self, blob):
+        return blob.get('id')
+
+
 class SpatialDict(FSBackedThreeLevelDict):
     def __init__(self, directory):
         directory = directory + '/spatial_dict'
         os.makedirs(directory, 0o770, exist_ok = True)
         super().__init__(directory)
         self.spatial_index = rtree.index.Index(directory + '/rtree')
-        self.keys = {}
-        self.coords = {}
+        self.keys = {}          # Maps key_tuple to key_QQ1
+        self.coords = {}        # Maps key_QQ1 to key_tuple
         return
-        
-    def _load_key(self, key, blob):
-        lat = float(original_data['lat'])
-        long = float(original_data['long'])
-        self.keys[(lat, long)] = key
-        self.coords[key] = (lat, long)
+
+    def _key_tuple_from_blob(self, blob):
+        return (float(blob['lat']), float(blob['long']))
+
+    # TODO-DAN this looks wrong - it refers to original_data not to blob ?
+    def _load_key(self, key_string, blob):
+        key_tuple = self._key_tuple_from_blob(self, blob)
+        self.keys[key_tuple] = key_string
+        self.coords[key_string] = key_tuple
         return
-        
         
     def _make_key(self, key_tuple):
+        """
+        Return key string from lat,long
+
+        :param key_tuple: (float lat, float long)
+        :return:
+        """
         (lat, long) = key_tuple
         key_string = self.keys.get(key_tuple)
         if not key_string:
@@ -236,21 +279,25 @@ class SpatialDict(FSBackedThreeLevelDict):
             self.coords[key_string] = key_tuple
         return key_string
 
-    def _insert_disk(self, key):
-        (lat, long) = self.coords[key]
+    def _insert_disk(self, key_string):
+        (lat, long) = self.coords[key_string]
         # we can always use the 0 for the id, duplicates are allowed
-        self.spatial_index.insert(0,  (lat, long, lat, long), obj = key)
+        self.spatial_index.insert(0,  (lat, long, lat, long), obj = key_string)
         return
 
     @property
     def bounds(self):
         return self.spatial_index.bounds
 
+    # TODO-DAN-DOCS what is key - I think its a bounding box object but not sure
     def map_over_matching_data(self, key, since, now):
         for obj in self.spatial_index.intersection(key, objects = True):  # [ object: [ obj, ob], object: [ obj, obj]]
             yield from self.map_over_json_blobs(obj.object, since, now)
         return
 
+    def _key_string_from_blob(self, blob):
+        key_tuple = self._key_tuple_from_blob(blob)
+        return self._make_key(key_tuple)
 
 # MITRA -- keeping this class so you can refer to it, delete when you are ready to
 class SpatialIndex:
@@ -381,32 +428,29 @@ class Contacts:
             self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, now)
         return {"status": "ok"}
 
+    def _update(self, updatetoken, updates, now):
+        # TODO-55 test if can do this without the "["
+        return any( [this_dict.update(updatetoken, updates, now) for this_dict in [self.contact_dict, self.spatial_dict] ])
+
     # status_update POST
     # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
         now = int(time.time())
-
-        nextkey = data.get('replaces') # This is a nonce, that is one before the first key
         length = data.get('length') # This is how many to replace
         if length:
+            updatetokens = data.get('updatetokens', [])
             for i in range(length):
-                updatetokens = data.get('updatetokens',[])
-                nextkey = hash_nonce(nextkey)
-                #TODO-55 Storing this replaces doesn't prove anything - since just folded to make updatetoken
-                updates = {'replaces': nextkey, 'status': data.get('status'), 'updatetoken': updatetokens.pop()}  # SEE-OTHER-ADD-FIELDS
-                for this_dict in [self.contact_dict, self.spatial_dict]:
-                    file_name = this_dict.update_index.get(fold_hash(nextkey))
-                    if file_name:
-                        (key, ignore, date, extension) = file_name.split('.')
-                        chunks, dir_name = this_dict.get_directory_name_and_chunks(key)
-                        json_data = json.load(open(('%s/%s' % (dir_name, file_name))))
-                        json_data.update(updates)
-                        # Store in the structure with the new info
-                        this_dict.insert(key, json_data, now)
-                # TODO-55 if some of the data points aren't found, there may be a synchronization issue, in which case server may need to hold the updatetoken and watch for the replaceable data coming in
-
+                updates = {
+                    'replaces': replacement_token(data.get('replaces'), i),
+                    'status': data.get('status'),
+                    'updatetoken': updatetokens[i]
+                }  # SEE-OTHER-ADD-FIELDS
+                # If some of the updatetokens are not found, it might be a sync issue, hold the update tokens till sync comes in
+                if not self._update(updatetoken, updates, now):
+                    self.unused_update_tokens[updatetoken] = updates
+                    # TODO-55 process unused_update_tokens later
         return {"status": "ok"}
 
     # scan_status post
