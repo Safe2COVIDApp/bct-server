@@ -45,6 +45,7 @@ config = get_config()
 
 contacts = Contacts(config)
 
+# noinspection PyUnusedLocal
 def receive_signal(signal_number, frame):
     logger.warning('Received signal: %s' % signal_number)
     if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):

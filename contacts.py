@@ -164,10 +164,10 @@ class FSBackedThreeLevelDict:
                     file_name = file_name.replace('.data', '')
                     (code, ignore, date) = file_name.split(':')
                     if (code == key_string) and _good_date(float(date), since, now):
-                        logger.info('matched, returnding %s/%s' % (dir_name, file_name))
+                        logger.info('matched, returning %s/%s' % (dir_name, file_name))
                         yield json.load(open(('%s/%s.data' % (dir_name, file_name))))
                     else:
-                        logger.info('did not matched, returnding %s/%s' % (dir_name, file_name))
+                        logger.info('did not matched, returning %s/%s' % (dir_name, file_name))
 
 
         return
