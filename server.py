@@ -97,11 +97,11 @@ def resolve_all_functions(ret, request):
             logger.info('found a function for key %s, running as a deferred' % key)
             defered = deferToThread(function_to_run_in_thread)
             defered.addCallback(defered_result_available, key, ret, request)
-            defered.addErrback(defered_result_error)
+            defered.addErrback(defered_result_error, request)
             return twserver.NOT_DONE_YET
     return ret
 
-def defered_result_error(failure):
+def defered_result_error(failure, request):
     logger.error("Logging an uncaught exception",
                  exc_info=(failure.type, failure.value, failure.tb))
     request.setResponseCode(400)
@@ -177,10 +177,10 @@ class Simple(resource.Resource):
 
 def sync_body(body, server):
     data = json.loads(body)
+    logger.info('Response body in sync: %s, calling send status' % data)
     contacts.send_status(json.loads(body), None) 
-    servers[server] = data['now']
-    json.dump(servers, open(servers_file_path, 'w'))
-    logger.info('Response body: %s' % data)
+    #servers[server] = data['now']
+    #json.dump(servers, open(servers_file_path, 'w'))
     return
 
 
