@@ -48,7 +48,8 @@ override_time_for_testing = False
 
 def current_time():
     if override_time_for_testing:
-        logging
+        #TODO-DAN I commented out the next line - doesn't make sense to me with no paramaters.
+        #logging
         return override_time_for_testing
     else:
         return time.time()
@@ -59,7 +60,7 @@ def set_current_time_for_testing(time):
     return
 
 def unix_time_from_iso(iso_string):
-    """ connvert an iso 8601 time to floating seconds since epoch """
+    """ convert an iso 8601 time to floating seconds since epoch """
     return datetime.datetime.fromisoformat(iso_string.replace("Z", "+00:00")).timestamp()
 
 def iso_time_from_seconds_since_epoch(seconds_since_epoch):
