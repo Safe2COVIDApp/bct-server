@@ -413,8 +413,10 @@ class Contacts:
         now = current_time()
         req_locations = data.get('locations', [])
         if not self.check_bounding_box(req_locations):
-            # TODO-65 TODO-68 TODO-DAN how to return an error in twisted ?
-            return "ERROR bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
+            return {
+                status: 302,
+                error: "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
+            }
         ret = {}
         if not since:
             since = "1970-01-01T01:01Z"
