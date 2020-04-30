@@ -76,15 +76,23 @@ class Server:
 
     def admin_status(self):
         logger.info('before admin_status call')
-        req = requests.get(self.url + '/admin/status')
+        resp = requests.get(self.url + '/admin/status')
+        assert resp.status_code == 200
         logger.info('after admin_status call')
-        return req
+        return resp
 
     def admin_config(self):
         logger.info('before admin_config call')
-        req = requests.get(self.url + '/admin/config')
+        resp = requests.get(self.url + '/admin/config')
+        assert resp.status_code == 200
         logger.info('after admin_config call')
-        return req
+        return resp
+
+    def signon(self, json_data):
+        logger.info("before call to signon")
+        resp = requests.post(self.url + '/signon', json = json_data)
+        assert resp.status_code == 200
+        return resp.json()
 
     def reset(self):
         logger.info('sending signal to server')
