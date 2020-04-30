@@ -72,7 +72,7 @@ class Client:
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()], since = self.since)
         self.since = json_data.get('now')
 
-        self.id_alerts.extend([i for i in json_data['ids'] if (i.get('id') in self.ids_used)])
+        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
 
         # Filter incoming location updates for those close to where we have been, but exclude any of our own (based on matching updatetoken
         existing_location_updatetokens = [l.get('updatetoken') for l in self.locations]

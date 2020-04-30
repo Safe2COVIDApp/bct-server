@@ -429,7 +429,7 @@ class Contacts:
             logger.info('contact file_paths = %s' % contact_file_paths)
             def get_contact_id_data():
                 return list(self.contact_dict.retrieve_json_from_file_paths(contact_file_paths))
-            ret['ids'] = get_contact_id_data
+            ret['contact_ids'] = get_contact_id_data
 
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { minLat...} ] }
