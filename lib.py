@@ -5,6 +5,7 @@ import string
 import random
 import time
 import logging
+import datetime
 logger = logging.getLogger(__name__)
 
 # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
@@ -57,3 +58,9 @@ def set_current_time_for_testing(time):
     override_time_for_testing = time
     return
 
+def unix_time_from_iso(iso_string):
+    """ connvert an iso 8601 time to floating seconds since epoch """
+    return datetime.datetime.fromisoformat(iso_string.replace("Z", "+00:00")).timestamp()
+
+def iso_time_from_seconds_since_epoch(seconds_since_epoch):
+    return datetime.datetime.utcfromtimestamp(seconds_since_epoch).isoformat() + 'Z'

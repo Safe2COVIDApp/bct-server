@@ -5,15 +5,11 @@ import os
 import json
 import time
 import calendar
-import datetime
 import rtree
 from collections import defaultdict
-from lib import update_token, replacement_token, random_ascii, current_time
+from lib import update_token, replacement_token, random_ascii, current_time, unix_time_from_iso, iso_time_from_seconds_since_epoch
 from blist import sortedlist
-import pdb
 
-def unix_time(dt):
-    return int(dt.timestamp())
 
 os.umask(0o007)
 
@@ -23,8 +19,9 @@ logger = logging.getLogger(__name__)
 # Essentially is date < now to return all items in anything other than the current second
 # that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
 # And is since <= date so that passing back now will get any events that happened on that second
+# All times are floating point seconds since the epoch
 def _good_date(date, since = None, now = None):
-    return ((not since) or (since <= date)) and ((not now) or (date < calendar.timegm(now)))
+    return ((not since) or (since <= date)) and ((not now) or (date < now))
 
 
 class FSBackedThreeLevelDict:
@@ -172,9 +169,9 @@ class FSBackedThreeLevelDict:
         """
         logger.info('gfp %s' % self.sorted_list_by_time)
         times_to_retrieve = list(self.sorted_list_by_time[self.sorted_list_by_time.bisect(since):self.sorted_list_by_time.bisect(now - 1)])
-        return [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], 0
-        if 0 != times_to_retrieve:
-            return [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], times_to_retrieve[-1]
+        if 0 != len(times_to_retrieve):
+            ret = [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], times_to_retrieve[-1]
+            return ret
         else:
             return [], 0
     
@@ -413,18 +410,17 @@ class Contacts:
     @register_method(route = '/status/scan')
     def scan_status(self, data, args):
         since = data.get('since')
-        now = time.gmtime()
+        now = current_time()
         req_locations = data.get('locations', [])
         if not self.check_bounding_box(req_locations):
             # TODO-65 TODO-68 TODO-DAN how to return an error in twisted ?
             return "ERROR bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
         ret = {}
-        if since:
-            ret['since'] = since
-            since = int(unix_time(datetime.datetime.fromisoformat(since.replace("Z", "+00:00"))))
-        else:
-            ret['since'] = "1970-01-01T01:01Z"
+        if not since:
+            since = "1970-01-01T01:01Z"
 
+        ret['since'] = since
+        since = unix_time_from_iso(since)
         prefixes = data.get('contact_prefixes')
         if prefixes:
             contact_file_paths = []
@@ -447,27 +443,26 @@ class Contacts:
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(spatial_file_paths))
             ret['locations'] = get_location_id_data
-        ret['now'] = time.strftime('%Y-%m-%dT%H:%M:%SZ', now)
+        ret['now'] = iso_time_from_seconds_since_epoch(now)
         return ret
 
     # sync get
     @register_method(route = '/sync')
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
-        now = time.gmtime()  # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
+        now = current_time()  # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
         since_string = args.get('since')
         if since_string:
             since_string = since_string[0].decode()
         else:
             since_string = "1970-01-01T01:01Z"
 
-        since = int(unix_time(datetime.datetime.fromisoformat(since_string.replace("Z", "+00:00"))))
-        now_in_seconds = calendar.timegm(now)
-        contacts, latest_contact_time = self.contact_dict.get_file_paths_between_times(since, now_in_seconds)
-        locations, latest_location_time = self.spatial_dict.get_file_paths_between_times(since, now_in_seconds)
-        
+        since = unix_time_from_iso(since_string)
+        contacts, latest_contact_time = self.contact_dict.get_file_paths_between_times(since, now)
+        locations, latest_location_time = self.spatial_dict.get_file_paths_between_times(since, now)
+        latest_time = max(latest_contact_time, latest_location_time)
 
-        ret = {'now':time.strftime('%Y-%m-%dT%H:%M:%SZ', now),
+        ret = {'until':iso_time_from_seconds_since_epoch(latest_time),
                'since':since_string}
 
         if 0 != len(contacts):

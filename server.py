@@ -179,8 +179,8 @@ def sync_body(body, server):
     data = json.loads(body)
     logger.info('Response body in sync: %s, calling send status' % data)
     contacts.send_status(json.loads(body), None) 
-    #servers[server] = data['now']
-    #json.dump(servers, open(servers_file_path, 'w'))
+    servers[server] = data['until']
+    json.dump(servers, open(servers_file_path, 'w'))
     return
 
 
