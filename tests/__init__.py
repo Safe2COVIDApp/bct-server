@@ -10,6 +10,7 @@ import json
 import os
 from lib import update_token, replacement_token
 from contextlib import contextmanager
+import pdb
 
 logger = logging.getLogger(__name__)
 
@@ -45,8 +46,13 @@ class Server:
             data['contacts'] = contacts
         if locations:
             data['locations'] = locations
+        headers = {}
+        current_time = kwargs.get('current_time')
+        if current_time:
+            headers['X-Testing-Time'] = str(current_time)
         data.update(kwargs)
-        req = requests.post(self.url + endpoint_name,  json= data)
+        #pdb.set_trace()
+        req = requests.post(self.url + endpoint_name,  json= data, headers = headers)
         logger.info('after %s call' % endpoint_name)
         return req
 
@@ -117,7 +123,7 @@ class Server:
         try:
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
-                    (code, ignore, date_and_extension) = file_name.split(':')
+                    (code, date_and_extension) = file_name.split(':')
                     if code == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
         except FileNotFoundError:
