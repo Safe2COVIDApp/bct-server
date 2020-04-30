@@ -59,9 +59,9 @@ class FSBackedThreeLevelDict:
                     self.item_count += 1
                     self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_list
 
-                    # Note this is expensive, it has to read each file to find updatetokens - maintaining an index would be better.
+                    # Note this is expensive, it has to read each file to find update_tokens - maintaining an index would be better.
                     blob = json.load(open('/'.join([root, file_name])))
-                    updatetoken = blob.get('updatetoken')
+                    updatetoken = blob.get('update_token')
                     if updatetoken:
                         self.update_index[updatetoken] = file_name
                     self._load_key(code, blob)
@@ -146,7 +146,7 @@ class FSBackedThreeLevelDict:
         self.time_to_file_path_map[floating_seconds] = file_path
         self._insert_disk(key)
         self.item_count += 1
-        ut = value.get('updatetoken')
+        ut = value.get('update_token')
         if ut:
             self.update_index[ut] = file_name
         return
@@ -186,7 +186,7 @@ class FSBackedThreeLevelDict:
         Look for an entry matching updating_token, add a new one after modifying with updates
 
         :param updating_token: folded hash 16 character string
-        :param updates:      { updatetoken, replaces, status }
+        :param updates:      { update_token, replaces, status }
         :param now:          unix time
         :return:             True if succeeded
         """
@@ -295,7 +295,7 @@ class SpatialDict(FSBackedThreeLevelDict):
     def bounds(self):
         return self.spatial_index.bounds
 
-    # key is a bounding box tuple (minLat, minLong, maxLat, maxLong) as floats
+    # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
     def map_over_matching_data(self, key, since, now):
         for obj in self.spatial_index.intersection(key, objects = True):  # [ object: [ obj, ob], object: [ obj, obj]]
             chunks, dir_name = self.get_directory_name_and_chunks(obj.object)
@@ -356,7 +356,7 @@ class Contacts:
 
 
     # send_status POST
-    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
+    # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
@@ -384,23 +384,23 @@ class Contacts:
         return any(this_dict.update(updatetoken, updates, floating_time) for this_dict in [self.contact_dict, self.spatial_dict])
 
     # status_update POST
-    # { locations: [ { minLat, updatetoken, ...} ], contacts: [ { id, updatetoken, ... } ], memo, replaces, status, ... ]
+    # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
     @register_method(route = '/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
         now = current_time()
         length = data.get('length') # This is how many to replace
         if length:
-            updatetokens = data.get('updatetokens', [])
+            updatetokens = data.get('update_tokens', [])
             for i in range(length):
                 rt = replacement_token(data.get('replaces'), i)
                 ut = update_token(rt)
                 updates = {
                     'replaces': rt,
                     'status': data.get('status'),
-                    'updatetoken': updatetokens[i]
+                    'update_token': updatetokens[i]
                 }  # SEE-OTHER-ADD-FIELDS
-                # If some of the updatetokens are not found, it might be a sync issue, hold the update tokens till sync comes in
+                # If some of the update_tokens are not found, it might be a sync issue, hold the update tokens till sync comes in
                 if not self._update(ut, updates, now):
                     self.unused_update_tokens[ut] = updates
                     # TODO-80 process unused_update_tokens later
@@ -432,18 +432,18 @@ class Contacts:
             ret['contact_ids'] = get_contact_id_data
 
         # Find any reported locations, inside the requests bounding box.
-        # { locations: [ { minLat...} ] }
+        # { locations: [ { min_lat...} ] }
         req_locations = data.get('locations')
         if req_locations:
             spatial_file_paths = []
             for bounding_box in req_locations:
-                spatial_file_paths += self.spatial_dict.map_over_matching_data((bounding_box['minLat'], bounding_box['minLong'], bounding_box['maxLat'], bounding_box['maxLong']), since, now)
+                spatial_file_paths += self.spatial_dict.map_over_matching_data((bounding_box['min_lat'], bounding_box['min_long'], bounding_box['max_lat'], bounding_box['max_long']), since, now)
 
             logger.info('spatial file_paths = %s' % spatial_file_paths)
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(spatial_file_paths))
             ret['locations'] = get_location_id_data
-        ret['now'] = iso_time_from_seconds_since_epoch(now)
+        ret['until'] = iso_time_from_seconds_since_epoch(now)
         return ret
 
     # sync get
@@ -505,10 +505,10 @@ class Contacts:
 
     def check_bounding_box(self, bb_arr):
         for bb in bb_arr:
-            for k in ['maxLong', 'minLong', 'maxLat', 'maxLong']:
+            for k in ['max_long', 'min_long', 'max_lat', 'min_lat']:
                 v = bb.get(k)
                 if (round(v, self.bb_min_dp) != v):
                     return False
-            if (abs(bb.get('maxLong')-bb.get('minLong')) * abs(bb.get('maxLat')-bb.get('minLat'))) > self.bb_max_size:
+            if (abs(bb.get('max_long')-bb.get('min_long')) * abs(bb.get('max_lat')-bb.get('min_lat'))) > self.bb_max_size:
                 return False
         return True

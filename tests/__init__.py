@@ -35,11 +35,11 @@ class Server:
         return req
 
     def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
-        # contacts and locations should already have updatetokens if want that functionality
+        # contacts and locations should already have update_tokens if want that functionality
         logger.info('before %s call' % endpoint_name)
         data = {}
         if nonce and kwargs.get('replaces'):
-            data['updatetokens'] = [
+            data['update_tokens'] = [
                 update_token(replacement_token(nonce, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
@@ -127,7 +127,7 @@ class Server:
         for root, sub_dirs, files in os.walk('%s/spatial_dict' % self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    #    if match_term == obj.object['updatetoken']:
+                    #    if match_term == obj.object['update_token']:
                     matches.append(json.load(open(root + '/' + file_name)))
         return matches
 
