@@ -108,7 +108,7 @@ class Client:
 
     # Simulate hearing an id
     def listen(self, contact_id):
-        self.observed_ids.append({'id': contact_id})
+        self.observed_ids.append({'id': contact_id, 'duration': 15})
 
     def _preprocessed_locations(self, location):
         loc = copy.deepcopy(location)
