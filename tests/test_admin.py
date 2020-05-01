@@ -7,6 +7,7 @@ def test_admin_config(server, data):
     assert json_data.get('directory')
     return
 
+
 def test_admin_status(server, data):
     server.reset()
     server.send_status_json(contacts=[{'id': data.valid_ids[0]}], locations=[data.locations_in[0]])
