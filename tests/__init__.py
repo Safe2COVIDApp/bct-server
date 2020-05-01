@@ -10,14 +10,13 @@ import json
 import os
 from lib import update_token, replacement_token
 from contextlib import contextmanager
-import pdb
 
 logger = logging.getLogger(__name__)
 
 # default to python, but allow override 
 python = os.environ.get('PYTHON_BIN', 'python')
 
-    
+
 class Server:
     def __init__(self, url, proc, directory):
         self.url = url
@@ -51,32 +50,32 @@ class Server:
         if current_time:
             headers['X-Testing-Time'] = str(current_time)
         data.update(kwargs)
-        #pdb.set_trace()
-        req = requests.post(self.url + endpoint_name,  json= data, headers = headers)
+        # pdb.set_trace()
+        req = requests.post(self.url + endpoint_name, json=data, headers=headers)
         logger.info('after %s call' % endpoint_name)
         return req
 
-    def send_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+    def send_status(self, nonce=None, contacts=None, locations=None, **kwargs):
         return self._status('/status/send', nonce, contacts, locations, **kwargs)
 
-    def send_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
-        resp = self.send_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+    def send_status_json(self, nonce=None, contacts=None, locations=None, **kwargs):
+        resp = self.send_status(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
-    def scan_status(self, nonce = None, contacts = None, locations = None, **kwargs):
+    def scan_status(self, nonce=None, contacts=None, locations=None, **kwargs):
         return self._status('/status/scan', nonce, contacts, locations, **kwargs)
 
-    def scan_status_json(self, nonce = None, contacts = None, locations = None, **kwargs):
-        resp = self.scan_status(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+    def scan_status_json(self, nonce=None, contacts=None, locations=None, **kwargs):
+        resp = self.scan_status(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
-    def status_update(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
+    def status_update(self, nonce=None, contacts=None, locations=None, **kwargs):  # Must have replaces
         return self._status('/status/update', nonce, None, None, **kwargs)
 
-    def status_update_json(self, nonce = None, contacts = None, locations = None, **kwargs): # Must have replaces
-        resp = self.status_update(nonce = nonce, contacts = contacts, locations = locations, **kwargs)
+    def status_update_json(self, nonce=None, contacts=None, locations=None, **kwargs):  # Must have replaces
+        resp = self.status_update(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
@@ -96,7 +95,7 @@ class Server:
 
     def init(self, json_data):
         logger.info("before call to init")
-        resp = requests.post(self.url + '/init', json = json_data)
+        resp = requests.post(self.url + '/init', json=json_data)
         assert resp.status_code == 200
         return resp.json()
 
@@ -108,12 +107,12 @@ class Server:
                 os.unlink(file_path)
             elif os.path.isdir(file_path):
                 shutil.rmtree(file_path)
-        #os.kill(76617, SIGUSR1)
+        # os.kill(76617, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
         logger.info('sent signal to server')
         return
 
-    def get_data_from_id(self, contact_id, dict_type = 'contact_dict'):
+    def get_data_from_id(self, contact_id, dict_type='contact_dict'):
         first_level = contact_id[0:2].upper()
         second_level = contact_id[2:4].upper()
         third_level = contact_id[4:6].upper()
@@ -139,6 +138,7 @@ class Server:
                     matches.append(json.load(open(root + '/' + file_name)))
         return matches
 
+
 def get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(('localhost', 0))
@@ -146,20 +146,21 @@ def get_free_port():
 
 
 # this can be run as a primary server or a secondary one syncing from a primary one
-def run_server(server_urls = None, port = None):
+def run_server(server_urls=None, port=None):
     # setup server
-    #yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')
-    #return
+    # yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')
+    # return
     if not port:
         port = get_free_port()
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_path = tmp_dir_name + '/config.ini'
-        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\nBOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\n' % (tmp_dir_name, port)
+        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\n' % (
+            tmp_dir_name, port)
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
         open(config_file_path, 'w').write(config_data)
-        with Popen([python, 'server.py', '--config_file', config_file_path], stderr = PIPE) as proc:
+        with Popen([python, 'server.py', '--config_file', config_file_path], stderr=PIPE) as proc:
             logger.info('waiting for server to startup')
             # let's give the server some time to start
             # Note 2.0 was too short
@@ -176,12 +177,10 @@ def run_server(server_urls = None, port = None):
     return
 
 
-
 @contextmanager
-def run_server_in_context(server_urls = None, port = None):
-    yield from run_server(server_urls = server_urls, port = port)
+def run_server_in_context(server_urls=None, port=None):
+    yield from run_server(server_urls=server_urls, port=port)
+
 
 def sort_list_of_dictionaries(input_list):
     return set(tuple(sorted(d.items())) for d in input_list)
-
-
