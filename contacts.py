@@ -118,7 +118,7 @@ class FSBackedThreeLevelDict:
         value -- Dict object needing storing
         floating_seconds -- unix time
         """
-        key = self._key_string_from_blob(blob)
+        key = self._key_string_from_blob(value)
         # we are NOT going to read multiple things from the file system for performance reasons
         #if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
