@@ -3,8 +3,6 @@
 import logging
 import os
 import json
-import time
-import calendar
 import rtree
 import copy
 from collections import defaultdict
@@ -362,14 +360,14 @@ class Contacts:
         table.insert(blob, floating_seconds)
         ut = blob.get('update_token')
         if ut and ut in self.unused_update_tokens:
-            blob_copy = copy.deepcopy(blob) # Dont trust the insert to make a copy
+            blob_copy = copy.deepcopy(blob) # Do not trust the insert to make a copy
             blob_copy.update(self.unused_update_tokens[ut])
             table.insert(blob_copy, floating_seconds)
             del self.unused_update_tokens[ut]
 
     # send_status POST
     # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
-    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body so dont assume this is just called by client !
+    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body so do not assume this is just called by client !
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
@@ -420,8 +418,8 @@ class Contacts:
         req_locations = data.get('locations', [])
         if not self.check_bounding_box(req_locations):
             return {
-                status: 302,
-                error: "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
+                'status': 302,
+                'error': "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (self.bb_max_size, self.bb_min_dp)
             }
         ret = {}
         if not since:
@@ -480,7 +478,6 @@ class Contacts:
         if 0 != len(locations):
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(locations))
-            ret['contacts'] = get_contact_id_data
             ret['locations'] = get_location_id_data
         return ret
 
@@ -518,7 +515,7 @@ class Contacts:
             "location_resolution": self.location_resolution, # ~10 meters at the equator
             "prefix_bits": 20, # TODO-34 will need to calculate this
         }
-        if (app_current_version):
+        if app_current_version:
             ret["application_current_version"] = app_current_version # TODO-83
         return ret
 
@@ -534,7 +531,7 @@ class Contacts:
         for bb in bb_arr:
             for k in ['max_long', 'min_long', 'max_lat', 'min_lat']:
                 v = bb.get(k)
-                if (round(v, self.bb_min_dp) != v):
+                if round(v, self.bb_min_dp) != v:
                     return False
             if (abs(bb.get('max_long')-bb.get('min_long')) * abs(bb.get('max_lat')-bb.get('min_lat'))) > self.bb_max_size:
                 return False

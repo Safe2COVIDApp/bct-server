@@ -21,7 +21,7 @@ class Client:
         self.safe_distance = 2 # Meters
         self.location_resolution = 4 # lat/long decimal points
         self.bounding_box_minimum_dp = 2 # Updated after init
-        self.bounding_box_maximum_dp = 3 # Dont let the server require resolution requests > ~100
+        self.bounding_box_maximum_dp = 3 # Do not let the server require resolution requests > ~100
 
         # Access generic test functions and data
         self.server = server

@@ -48,15 +48,15 @@ override_time_for_testing = False
 
 def current_time():
     if override_time_for_testing:
-        #TODO-DAN I commented out the next line - doesn't make sense to me with no paramaters.
+        #TODO-DAN I commented out the next line - doesn't make sense to me with no parameters.
         #logging
         return override_time_for_testing
     else:
         return time.time()
 
-def set_current_time_for_testing(time):
+def set_current_time_for_testing(floating_seconds):
     global override_time_for_testing
-    override_time_for_testing = time
+    override_time_for_testing = floating_seconds
     return
 
 def unix_time_from_iso(iso_string):

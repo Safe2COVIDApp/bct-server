@@ -1,5 +1,3 @@
-import time
-import pdb
 
 def test_send_status(server, data):
     server.reset()

@@ -16,7 +16,6 @@ import signal
 import atexit
 import sys
 from lib import set_current_time_for_testing
-import pdb
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -160,7 +159,7 @@ class Simple(resource.Resource):
                 ret = ret['error']
                 logger.info('error return is %s' % ret)
             else:
-                # if any values functuons in ret, then run then asynchronously and return None here
+                # if any values functions in ret, then run then asynchronously and return None here
                 # if they aren't then return ret
                 
                 ret = resolve_all_functions(ret, request)
@@ -175,11 +174,11 @@ class Simple(resource.Resource):
             return ret
             
 
-def sync_body(body, server):
+def sync_body(body, remote_server):
     data = json.loads(body)
     logger.info('Response body in sync: %s, calling send status' % data)
     contacts.send_status(json.loads(body), None) 
-    servers[server] = data['until']
+    servers[remote_server] = data['until']
     json.dump(servers, open(servers_file_path, 'w'))
     return
 
@@ -202,8 +201,8 @@ def sync_response(response, server):
 
 def get_data_from_neighbors():
     logger.info("getting data from neighbors")
-    for server, last_request in servers.items():
-        url = '%s/sync?since=%s' % (server, last_request)
+    for remote_server, last_request in servers.items():
+        url = '%s/sync?since=%s' % (remote_server, last_request)
         logger.info('getting data from %s' % url)
         agent = Agent(reactor)
 
@@ -213,7 +212,7 @@ def get_data_from_neighbors():
             Headers({'User-Agent': ['Twisted Web Client Example'],
                      'X-Self-String': [self_string]}),
             None)
-        request.addCallback(sync_response, server)
+        request.addCallback(sync_response, remote_server)
         request.addErrback(sync_error)
     return
 
