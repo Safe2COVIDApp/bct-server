@@ -6,6 +6,7 @@ import json
 import time
 import calendar
 import rtree
+import copy
 from collections import defaultdict
 from lib import update_token, replacement_token, random_ascii, current_time, unix_time_from_iso, iso_time_from_seconds_since_epoch
 from blist import sortedlist
@@ -108,7 +109,7 @@ class FSBackedThreeLevelDict:
         chunks = [key[i:i+2] for i in [0, 2, 4]]
         return chunks, "/".join(chunks)
 
-    def insert(self, key, value, floating_seconds):
+    def insert(self, value, floating_seconds):
         """
         Insert value object at key with date, keep various indexes to it (update_index)
 
@@ -118,8 +119,7 @@ class FSBackedThreeLevelDict:
         value -- Dict object needing storing
         floating_seconds -- unix time
         """
-        if str != type(key):
-            key = self._make_key(key)
+        key = self._key_string_from_blob(value)
         # we are NOT going to read multiple things from the file system for performance reasons
         #if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
@@ -195,8 +195,7 @@ class FSBackedThreeLevelDict:
             file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(self.directory + '/' + file_path))
             blob.update(updates)
-            key_string = self._key_string_from_blob(blob)
-            self.insert(key_string, blob, now)
+            self.insert(blob, now)
             return True
         else:
             return False
@@ -359,30 +358,33 @@ class Contacts:
     def close(self):
         return
 
+    def _insert_blob_with_optional_replacement(self, table, blob, floating_seconds):
+        table.insert(blob, floating_seconds)
+        ut = blob.get('update_token')
+        if ut and ut in self.unused_update_tokens:
+            blob_copy = copy.deepcopy(blob) # Dont trust the insert to make a copy
+            blob_copy.update(self.unused_update_tokens[ut])
+            table.insert(blob_copy, floating_seconds)
+            del self.unused_update_tokens[ut]
 
     # send_status POST
     # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
+    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body so dont assume this is just called by client !
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
-        floating_time = current_time()
+        floating_seconds = current_time()
 
-        repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
-        for key in ['memo', 'replaces', 'status']:
-            val = data.get(key)
-            if val:
-                repeated_fields[key] = val
-
         # first process contacts, then process geocode
+        repeated_fields = { k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k) }
         for contact in data.get('contacts', []):
             contact.update(repeated_fields)
-            contact_id = contact['id']
-            self.contact_dict.insert(contact_id, contact, floating_time)
+            self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
         for location in data.get('locations', []):
             location.update(repeated_fields)
-            self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, floating_time)
+            self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds)
         return {"status": "ok"}
 
     def _update(self, updatetoken, updates, floating_time):
@@ -408,7 +410,6 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue, hold the update tokens till sync comes in
                 if not self._update(ut, updates, now):
                     self.unused_update_tokens[ut] = updates
-                    # TODO-80 process unused_update_tokens later
         return {"status": "ok"}
 
     # scan_status post
