@@ -108,7 +108,7 @@ class FSBackedThreeLevelDict:
         chunks = [key[i:i+2] for i in [0, 2, 4]]
         return chunks, "/".join(chunks)
 
-    def insert(self, key, value, floating_seconds):
+    def insert(self, value, floating_seconds):
         """
         Insert value object at key with date, keep various indexes to it (update_index)
 
@@ -118,8 +118,7 @@ class FSBackedThreeLevelDict:
         value -- Dict object needing storing
         floating_seconds -- unix time
         """
-        if str != type(key):
-            key = self._make_key(key)
+        key = self._key_string_from_blob(blob)
         # we are NOT going to read multiple things from the file system for performance reasons
         #if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
@@ -149,13 +148,6 @@ class FSBackedThreeLevelDict:
         ut = value.get('update_token')
         if ut:
             self.update_index[ut] = file_name
-        return
-
-    # TODO-80 see if .insert is obsolete and should be merged in here
-    def insert_blob(self, blob, floating_seconds):
-        # Note _key_string_from_blob is subclassed in dictionaries - could be contact id or random string linked to lat/long
-        key = self._key_string_from_blob(blob)
-        self.insert(key, blob, floating_seconds)
         return
 
     def map_over_matching_data(self, key, since, now):
@@ -202,7 +194,7 @@ class FSBackedThreeLevelDict:
             file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(self.directory + '/' + file_path))
             blob.update(updates)
-            self.insert_blob(blob, now)
+            self.insert(blob, now)
             return True
         else:
             return False
@@ -361,12 +353,12 @@ class Contacts:
         return
 
     def _insert_blob_with_optional_replacement(self, table, blob, floating_seconds):
-        table.insert_blob(blob, floating_seconds)
+        table.insert(blob, floating_seconds)
         ut = blob.get('update_token')
         if ut and ut in self.unused_update_tokens:
             blob_copy = blob.deepcopy # Dont trust the insert to make a copy
             blob_copy.update(self.unused_update_tokens[ut])
-            table.insert_blob(blob_copy, floating_seconds)
+            table.insert(blob_copy, floating_seconds)
             del self.unused_update_tokens[ut]
 
     # send_status POST
@@ -412,7 +404,6 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue, hold the update tokens till sync comes in
                 if not self._update(ut, updates, now):
                     self.unused_update_tokens[ut] = updates
-                    # TODO-80 process unused_update_tokens later
         return {"status": "ok"}
 
     # scan_status post
