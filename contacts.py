@@ -6,6 +6,7 @@ import json
 import time
 import calendar
 import rtree
+import copy
 from collections import defaultdict
 from lib import update_token, replacement_token, random_ascii, current_time, unix_time_from_iso, iso_time_from_seconds_since_epoch
 from blist import sortedlist
@@ -356,7 +357,7 @@ class Contacts:
         table.insert(blob, floating_seconds)
         ut = blob.get('update_token')
         if ut and ut in self.unused_update_tokens:
-            blob_copy = blob.deepcopy # Dont trust the insert to make a copy
+            blob_copy = copy.deepcopy(blob) # Dont trust the insert to make a copy
             blob_copy.update(self.unused_update_tokens[ut])
             table.insert(blob_copy, floating_seconds)
             del self.unused_update_tokens[ut]
