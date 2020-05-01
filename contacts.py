@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def _good_date(date, since = None, now = None):
     return ((not since) or (since <= date)) and ((not now) or (date < now))
 
-signon_statistics_fields = ['application_name', 'application_version', 'phone_type', 'region', 'health_provider', 'language']
+init_statistics_fields = ['application_name', 'application_version', 'phone_type', 'region', 'health_provider', 'language']
 class FSBackedThreeLevelDict:
 
     @staticmethod
@@ -347,7 +347,7 @@ class Contacts:
         self.location_resolution = config.getfloat('location_resolution', 4)
         self.unused_update_tokens = {}
         self.statistics = {}
-        for k in signon_statistics_fields:
+        for k in init_statistics_fields:
             self.statistics[k] = 0
         return
 
@@ -499,10 +499,10 @@ class Contacts:
         }
         return ret
 
-    # signon post
-    @register_method(route = '/signon')
-    def signon(self, data, args):
-        for k in signon_statistics_fields:
+    # init post
+    @register_method(route = '/init')
+    def init(self, data, args):
+        for k in init_statistics_fields:
             self.statistics[k] += 1
         return {
             # "application_current_version": 0.2, # TODO-83 - delayed till clients capable

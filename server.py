@@ -73,7 +73,7 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '1970-01-01T00:00Z'
             
-allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET', '/signon:POST']
+allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET', '/admin/status:GET', '/init:POST']
 
 
 def defered_function(function):

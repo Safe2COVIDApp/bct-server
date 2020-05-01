@@ -6,7 +6,7 @@ class Data:
         self.locations_in =  [{ "lat": 37.7739, "long": -122.4312 }]
         self.locations_out = [{ "lat": 99.9999, "long": -99.9999 }]
         self.locations_box = { "minLat": 37.70, 'maxLat': 37.80, 'minLong': -122.44, 'maxLong': -122.43},
-        self.signon_req = {
+        self.init_req = {
             "application_name": "testing",
             "application_version": 1.0,
             "phone_type": "laptop",

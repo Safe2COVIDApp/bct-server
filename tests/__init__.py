@@ -94,9 +94,9 @@ class Server:
         logger.info('after admin_config call')
         return resp
 
-    def signon(self, json_data):
-        logger.info("before call to signon")
-        resp = requests.post(self.url + '/signon', json = json_data)
+    def init(self, json_data):
+        logger.info("before call to init")
+        resp = requests.post(self.url + '/init', json = json_data)
         assert resp.status_code == 200
         return resp.json()
 

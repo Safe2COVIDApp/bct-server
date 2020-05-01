@@ -20,7 +20,7 @@ class Client:
         self.id_length = 32 # How many characters in hex id. Normally would be 128 bits = 32 chars
         self.safe_distance = 2 # Meters
         self.location_resolution = 4 # lat/long decimal points
-        self.bounding_box_minimum_dp = 2 # Updated after signon
+        self.bounding_box_minimum_dp = 2 # Updated after init
         self.bounding_box_maximum_dp = 3 # Dont let the server require resolution requests > ~100
 
         # Access generic test functions and data
@@ -165,19 +165,19 @@ class Client:
     def observes(self, other):
         self.listen(other.broadcast())
 
-    def signon(self, json_data):
-        self.signon_resp = self.server.signon(json_data)
-        self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp, self.signon_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp)) # Update if found
-        self.location_resolution = self.signon_resp.get('location_resolution', self.location_resolution)
-        self.prefix_length = self.signon_resp.get('prefix_length', self.prefix_length)
+    def init(self, json_data):
+        self.init_resp = self.server.init(json_data)
+        self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp, self.init_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp)) # Update if found
+        self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
+        self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 
 def test_pseudoclient_work(server, data):
     server.reset()
     logging.info('Started test_pseudoclient_work')
     alice = Client(server = server, data = data)
-    alice.signon(data.signon_req)
+    alice.init(data.init_req)
     bob = Client(server = server, data = data)
-    bob.signon(data.signon_req)
+    bob.init(data.init_req)
     bob.random_walk() # Bob has been in two locations now
     alice.observes(bob)
     bob.observes(alice)
