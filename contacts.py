@@ -346,6 +346,7 @@ class Contacts:
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = {}
+        self.config = config # used in init
         self.statistics = {}
         for k in init_statistics_fields:
             self.statistics[k] = 0
@@ -506,14 +507,19 @@ class Contacts:
     def init(self, data, args):
         for k in init_statistics_fields:
             self.statistics[k] += 1
-        return {
-            # "application_current_version": 0.2, # TODO-83 - delayed till clients capable
+        #TODO-83
+        app_name = data.get('application_name')
+        app_current_version = self.config.getfloat('APP_' + app_name)
+        ret = {
             # "messaging_url": "", "messaging_version": 1, # TODO-84 - delayed till clients capable
             "bounding_box_minimum_dp": self.bb_min_dp,
             "bounding_box_maximum_size": self.bb_max_size,
             "location_resolution": self.location_resolution, # ~10 meters at the equator
             "prefix_bits": 20, # TODO-34 will need to calculate this
         }
+        if (app_current_version):
+            ret["application_current_version"] = app_current_version # TODO-83
+        return ret
 
     # reset should only be called and allowed if testing
     def reset(self):
