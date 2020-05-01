@@ -17,6 +17,7 @@ STATUS_HEALTHY = 4
 class Client:
 
     def __init__(self, server=None, data=None, **kwargs):
+        # TODO-MITRA - check prefix length - when is it bits and when characters
         self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
         self.safe_distance = 2  # Meters
@@ -63,12 +64,12 @@ class Client:
         return [i[:self.prefix_length] for i in self.ids_used]
 
     # This is a very crude "_close_to" function, could obviously be much better.
-    def _close_to(self, l, loc):
-        return abs(l['lat'] - loc['lat']) + abs(l['long'] - loc['long']) * scale1meter <= self.safe_distance
+    def _close_to(self, otherloc, loc):
+        return abs(otherloc['lat'] - loc['lat']) + abs(otherloc['long'] - loc['long']) * scale1meter <= self.safe_distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
-        return any(self._close_to(l, loc) for l in self.locations)
+        return any(self._close_to(pastloc, loc) for pastloc in self.locations)
 
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
@@ -77,8 +78,9 @@ class Client:
 
         self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
 
-        # Filter incoming location updates for those close to where we have been, but exclude any of our own (based on matching update_token
-        existing_location_updatetokens = [l.get('update_token') for l in self.locations]
+        # Filter incoming location updates for those close to where we have been,
+        # but exclude any of our own (based on matching update_token
+        existing_location_updatetokens = [loc.get('update_token') for loc in self.locations]
         self.location_alerts.extend(
             filter(
                 lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_updatetokens,
@@ -96,13 +98,14 @@ class Client:
         for i in self.id_alerts:
             if i.get('update_token') in id_updatetokens:
                 i['replaced'] = True
-        for l in self.location_alerts:
-            if l.get('update_token') in location_updatetokens:
-                l['replaced'] = True
+        for loc in self.location_alerts:
+            if loc.get('update_token') in location_updatetokens:
+                loc['replaced'] = True
 
-        # New status is minimum of any statuses that haven't been replaced +1 (e.g. if user is Infected (1) we will be PUI (2)
+        # New status is minimum of any statuses that haven't been replaced +1
+        # (e.g. if user is Infected (1) we will be PUI (2)
         new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
-                         + [l['status'] + 1 for l in self.location_alerts if not l.get('replaced')]
+                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
                          + [STATUS_HEALTHY])
         self.update_status(new_status)  # Correctly handles case of no change
 
@@ -142,8 +145,8 @@ class Client:
                 # TODO depending on tests, might want to only update and send ones not already sent
                 for o in self.observed_ids:
                     o['update_token'] = self.next_updatetoken()
-                for l in self.locations:
-                    l['update_token'] = self.next_updatetoken()
+                for loc in self.locations:
+                    loc['update_token'] = self.next_updatetoken()
                 self.server.send_status_json(
                     contacts=copy.deepcopy(self.observed_ids),
                     locations=[self._preprocessed_locations(loc) for loc in self.locations],
@@ -170,8 +173,8 @@ class Client:
 
     def init(self, json_data):
         self.init_resp = self.server.init(json_data)
-        self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp, self.init_resp.get('bounding_box_minimum_dp',
-                                                                                            self.bounding_box_minimum_dp))  # Update if found
+        self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp,
+                                           self.init_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp))
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
         self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 

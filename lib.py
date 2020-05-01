@@ -41,7 +41,8 @@ def replacement_token(nonce, n):
 
 
 # Generate Update Token from Replacement Token
-# Requirements: Not reversible, confirmable i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
+# Requirements: Not reversible, confirmable
+# i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
 def update_token(rt):
     return fold_hash(hash_nonce(rt))
 

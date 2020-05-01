@@ -17,7 +17,8 @@ logger = logging.getLogger(__name__)
 
 # Return a matching date - see issue#57 for discussion of a valid date
 # Essentially is date < now to return all items in anything other than the current second
-# that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included, no matter if after or before this sync or scan_status
+# that is to make sure that if an event arrives in the same second, we know for sure that it was NOT included,
+# no matter if after or before this sync or scan_status
 # And is since <= date so that passing back now will get any events that happened on that second
 # All times are floating point seconds since the epoch
 def _good_date(date, since=None, now=None):
@@ -63,7 +64,8 @@ class FSBackedThreeLevelDict:
                     self.item_count += 1
                     self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_list
 
-                    # Note this is expensive, it has to read each file to find update_tokens - maintaining an index would be better.
+                    # Note this is expensive, it has to read each file to find update_tokens
+                    # - maintaining an index would be better.
                     blob = json.load(open('/'.join([root, file_name])))
                     updatetoken = blob.get('update_token')
                     if updatetoken:
@@ -86,7 +88,8 @@ class FSBackedThreeLevelDict:
 
     def _make_key(self, key):
         """ 
-        _make_key is defined in the subclass and returns a unique string (should be over 6 characters, but long enough to avoid collisions)
+        _make_key is defined in the subclass and returns a unique string
+        (should be over 6 characters, but long enough to avoid collisions)
         that can be used to index into the three level filesystem
 
         Parameters:
@@ -132,6 +135,7 @@ class FSBackedThreeLevelDict:
         chunks, dir_name = self.get_directory_name_and_chunks(key)
 
         # first put this floating_seconds into the item list
+        # TODO-DAN code inspector suggests should be using isinstance()
         if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
             self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds]
         else:
@@ -171,7 +175,8 @@ class FSBackedThreeLevelDict:
         times_to_retrieve = list(
             self.sorted_list_by_time[self.sorted_list_by_time.bisect(since):self.sorted_list_by_time.bisect(now - 1)])
         if 0 != len(times_to_retrieve):
-            ret = [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], times_to_retrieve[-1]
+            ret = [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], \
+                  times_to_retrieve[-1]
             return ret
         else:
             return [], 0
@@ -314,7 +319,9 @@ class SpatialDict(FSBackedThreeLevelDict):
 # for an id "DEADBEEF", the in memory version is stored in self.ids in the element
 # self.ids['DE']['AD']['BE']["DEADBEEF']  for the disk version is is store in a four
 # level directory structure rooted at config['directory'] in 'DE/AD/BE/DEADBEEF.[DATE].[PSEUDORANDOM].data'
-# [DATE] is the date it gets entered in the system and [PSEUDORANDOM] is used to differential contacts with the same ID that come in at the same time
+# [DATE] is the date it gets entered in the system
+# TODO-DAN is this still correct, i thought pseudorandom had gone?
+# [PSEUDORANDOM] is used to differential contacts with the same ID that come in at the same time
 # (accuracy is to minutes).  The date strings are 'YYYYMMDDHHmm'
 
 registry = {}
@@ -368,8 +375,9 @@ class Contacts:
             del self.unused_update_tokens[ut]
 
     # send_status POST
-    # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
-    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body so do not assume this is just called by client !
+    # { locations: [ { min_lat,update_token,...}], contacts: [{id,update_token,...} ], memo, replaces, status, ... ]
+    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body
+    # so do not assume this is just called by client !
     @register_method(route='/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
@@ -392,7 +400,7 @@ class Contacts:
                    [self.contact_dict, self.spatial_dict])
 
     # status_update POST
-    # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
+    # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], memo, replaces, status, ... ]
     @register_method(route='/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
@@ -408,7 +416,8 @@ class Contacts:
                     'status': data.get('status'),
                     'update_token': updatetokens[i]
                 }  # SEE-OTHER-ADD-FIELDS
-                # If some of the update_tokens are not found, it might be a sync issue, hold the update tokens till sync comes in
+                # If some of the update_tokens are not found, it might be a sync issue,
+                # hold the update tokens till sync comes in
                 if not self._update(ut, updates, now):
                     self.unused_update_tokens[ut] = updates
         return {"status": "ok"}
@@ -423,7 +432,7 @@ class Contacts:
             return {
                 'status': 302,
                 'error': "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (
-                self.bb_max_size, self.bb_min_dp)
+                    self.bb_max_size, self.bb_min_dp)
             }
         ret = {}
         if not since:
@@ -467,7 +476,8 @@ class Contacts:
     @register_method(route='/sync')
     def sync(self, data, args):
         # Note that any replaced items will be sent as new items, so there is no need for a separate list of nonces.
-        now = current_time()  # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
+        # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
+        now = current_time()
         since_string = args.get('since')
         if since_string:
             since_string = since_string[0].decode()

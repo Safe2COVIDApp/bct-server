@@ -1,8 +1,8 @@
 import time
 import logging
+from . import run_server_in_context, get_free_port, sort_list_of_dictionaries
 
 logger = logging.getLogger(__name__)
-from . import run_server_in_context, get_free_port, sort_list_of_dictionaries
 
 
 def test_sync():
