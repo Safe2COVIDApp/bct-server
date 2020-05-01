@@ -86,7 +86,7 @@ def defered_function(function):
 
 def resolve_all_functions(ret, request):
     """
-    resolve_all_functions goes through the dictionary ret looking for any values tht are functions, if there are, then
+    resolve_all_functions goes through the dictionary ret looking for any values that are functions, if there are, then
     it runs the function in a deferred thread with request, the key for that value and the dictionary as args.  
     After the thread runs successfully the result of the function replaces the function value in the dictionary and we
     iterate until all have been resolved
@@ -156,7 +156,7 @@ class Simple(resource.Resource):
         if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
             ret =  contacts.execute_route(path, data, args)
             if 'error' in ret:
-                request.setResponseCode(400)
+                request.setResponseCode(ret.get('status', 400))
                 ret = ret['error']
                 logger.info('error return is %s' % ret)
             else:

@@ -52,10 +52,10 @@ class Client:
 
     def _box(self):
         return {
-            'minLat': round(min([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'minLong': round(min([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'maxLat': round(max([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'maxLong': round(max([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'min_lat': round(min([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'min_long': round(min([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'max_lat': round(max([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'max_long': round(max([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
         }
 
     def _prefixes(self):
@@ -71,30 +71,30 @@ class Client:
 
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()], since = self.since)
-        self.since = json_data.get('now')
+        self.since = json_data.get('until')
 
-        self.id_alerts.extend([i for i in json_data['ids'] if (i.get('id') in self.ids_used)])
+        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
 
-        # Filter incoming location updates for those close to where we have been, but exclude any of our own (based on matching updatetoken
-        existing_location_updatetokens = [l.get('updatetoken') for l in self.locations]
+        # Filter incoming location updates for those close to where we have been, but exclude any of our own (based on matching update_token
+        existing_location_updatetokens = [l.get('update_token') for l in self.locations]
         self.location_alerts.extend(
-            filter(lambda loc: self._location_match(loc) and not loc.get('updatetoken') in existing_location_updatetokens,
+            filter(lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_updatetokens,
                    json_data['locations']))
 
         # Find the replaces tokens for both ids and locations - these are the locations this data point replaces
         id_replaces = [ i.get('replaces') for i in self.id_alerts if i.get('replaces')]
         location_replaces = [ loc.get('replaces') for loc in self.location_alerts if loc.get('replaces')]
 
-        # Find updatetokens that have been replaced
+        # Find update_tokens that have been replaced
         id_updatetokens = [ update_token(rt) for rt in id_replaces ]
         location_updatetokens = [ update_token(rt) for rt in location_replaces ]
 
         # Mark any ids or locations that have been replaced
         for i in self.id_alerts:
-            if i.get('updatetoken') in id_updatetokens:
+            if i.get('update_token') in id_updatetokens:
                 i['replaced'] = True
         for l in self.location_alerts:
-            if l.get('updatetoken') in location_updatetokens:
+            if l.get('update_token') in location_updatetokens:
                 l['replaced'] = True
 
         # New status is minimum of any statuses that haven't been replaced +1 (e.g. if user is Infected (1) we will be PUI (2)
@@ -109,7 +109,7 @@ class Client:
 
     # Simulate hearing an id
     def listen(self, contact_id):
-        self.observed_ids.append({'id': contact_id})
+        self.observed_ids.append({'id': contact_id, 'duration': 15})
 
     def _preprocessed_locations(self, location):
         loc = copy.deepcopy(location)
@@ -135,12 +135,12 @@ class Client:
                 length = len(self.locations)+len(self.observed_ids)
                 self.server.status_update_json(status=self.status, nonce=self.nonce, replaces=replaces, length=length)
             else:
-                # Store the updatetokens on these ids, it will allow us to deduplicate echos
+                # Store the update_tokens on these ids, it will allow us to deduplicate echos
                 # TODO depending on tests, might want to only update and send ones not already sent
                 for o in self.observed_ids:
-                    o['updatetoken'] = self.next_updatetoken()
+                    o['update_token'] = self.next_updatetoken()
                 for l in self.locations:
-                    l['updatetoken'] = self.next_updatetoken()
+                    l['update_token'] = self.next_updatetoken()
                 self.server.send_status_json(
                     contacts=copy.deepcopy(self.observed_ids), locations=[ self._preprocessed_locations(loc) for loc in self.locations],
                     status=self.status, nonce=self.nonce, replaces = replaces)
