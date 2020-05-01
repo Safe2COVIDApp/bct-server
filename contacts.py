@@ -344,7 +344,7 @@ class Contacts:
         self.contact_dict = ContactDict(self.directory_root)
         self.bb_min_dp = config.getint('bounding_box_minimum_dp', 2)
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
-        self.location_resolution = config.getfloat('location_resolution', 4)
+        self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = {}
         self.statistics = {}
         for k in init_statistics_fields:
