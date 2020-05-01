@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def _good_date(date, since = None, now = None):
     return ((not since) or (since <= date)) and ((not now) or (date < now))
 
-
+init_statistics_fields = ['application_name', 'application_version', 'phone_type', 'region', 'health_provider', 'language']
 class FSBackedThreeLevelDict:
 
     @staticmethod
@@ -342,9 +342,13 @@ class Contacts:
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
         self.contact_dict = ContactDict(self.directory_root)
-        self.bb_min_dp = config.getint('bounding_box_minimum_dp')
-        self.bb_max_size = config.getfloat('bounding_box_maximum_size')
+        self.bb_min_dp = config.getint('bounding_box_minimum_dp', 2)
+        self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
+        self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = {}
+        self.statistics = {}
+        for k in init_statistics_fields:
+            self.statistics[k] = 0
         return
 
 
@@ -496,6 +500,20 @@ class Contacts:
             'contacts_count': len(self.contact_dict)
         }
         return ret
+
+    # init post
+    @register_method(route = '/init')
+    def init(self, data, args):
+        for k in init_statistics_fields:
+            self.statistics[k] += 1
+        return {
+            # "application_current_version": 0.2, # TODO-83 - delayed till clients capable
+            # "messaging_url": "", "messaging_version": 1, # TODO-84 - delayed till clients capable
+            "bounding_box_minimum_dp": self.bb_min_dp,
+            "bounding_box_maximum_size": self.bb_max_size,
+            "location_resolution": self.location_resolution, # ~10 meters at the equator
+            "prefix_bits": 20, # TODO-34 will need to calculate this
+        }
 
     # reset should only be called and allowed if testing
     def reset(self):
