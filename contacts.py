@@ -151,6 +151,13 @@ class FSBackedThreeLevelDict:
             self.update_index[ut] = file_name
         return
 
+    # TODO-80 see if .insert is obsolete and should be merged in here
+    def insert_blob(self, blob, floating_seconds):
+        # Note _key_string_from_blob is subclassed in dictionaries - could be contact id or random string linked to lat/long
+        key = self._key_string_from_blob(blob)
+        self.insert(key, blob, floating_seconds)
+        return
+
     def map_over_matching_data(self, key, since, now):
         raise NotImplementedError
 
@@ -195,8 +202,7 @@ class FSBackedThreeLevelDict:
             file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(self.directory + '/' + file_path))
             blob.update(updates)
-            key_string = self._key_string_from_blob(blob)
-            self.insert(key_string, blob, now)
+            self.insert_blob(blob, now)
             return True
         else:
             return False
@@ -354,30 +360,33 @@ class Contacts:
     def close(self):
         return
 
+    def _insert_blob_with_optional_replacement(self, table, blob, floating_seconds):
+        table.insert_blob(blob, floating_seconds)
+        ut = blob.get('update_token')
+        if ut and ut in self.unused_update_tokens:
+            blob_copy = blob.deepcopy # Dont trust the insert to make a copy
+            blob_copy.update(self.unused_update_tokens[ut])
+            table.insert_blob(blob_copy, floating_seconds)
+            del self.unused_update_tokens[ut]
 
     # send_status POST
     # { locations: [ { min_lat, update_token, ...} ], contacts: [ { id, update_token, ... } ], memo, replaces, status, ... ]
+    # Note this method is also called from server.py/get_data_from_neighbours > sync_response > sync_body so dont assume this is just called by client !
     @register_method(route = '/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
-        floating_time = current_time()
+        floating_seconds = current_time()
 
-        repeated_fields = {}
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
-        for key in ['memo', 'replaces', 'status']:
-            val = data.get(key)
-            if val:
-                repeated_fields[key] = val
-
         # first process contacts, then process geocode
+        repeated_fields = { k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k) }
         for contact in data.get('contacts', []):
             contact.update(repeated_fields)
-            contact_id = contact['id']
-            self.contact_dict.insert(contact_id, contact, floating_time)
+            self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
         for location in data.get('locations', []):
             location.update(repeated_fields)
-            self.spatial_dict.insert((float(location['lat']), float(location['long'])), location, floating_time)
+            self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds)
         return {"status": "ok"}
 
     def _update(self, updatetoken, updates, floating_time):
