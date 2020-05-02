@@ -2,16 +2,18 @@
 
 	
 # bct-server
-Bluetooth Contact Tracing for Covid19 - server
+Safe2 protocol server
 
 # Documentation
 
-https://docs.google.com/document/d/1c390iMNWVMDueZkqfhb7kF0XVQKXfHl5PHIAUu7GgTY/edit
+https://bit.ly/safe2protocol
 
 # Design Decisions
 
 * Each contact is a hex string
-* Simple filesystem storage.  Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
+* Simple filesystem storage.  
+  * Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
+  * Geograhic locations are stored in a 4 level directory structure ( TODO-DAN exapand )
 * All contacts are also stored in memory
 * On startup the filesystem is traversed to load data (there are various optimizations that can be done to reduce load time, such as checkpointing the local list of contacts
 * Python/Twisted server
@@ -23,6 +25,11 @@ The geocode support requires the python module Rtree which in turn requires libs
 To install:
 * brew install spatialindex (osx)
 * apt install libspatialindex-dev (ubuntu)
+
+# Running on Docker
+TODO-DAN install on docker repository
+
+Either run the Dockerfile from this repo, or run from the docker repository once its installed there.
 
 # Running web Server
 
