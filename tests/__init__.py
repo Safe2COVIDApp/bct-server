@@ -51,6 +51,7 @@ class Server:
             headers['X-Testing-Time'] = str(current_time)
         data.update(kwargs)
         # pdb.set_trace()
+        logger.info("Sending %s: %s" % (endpoint_name, str(data)))
         req = requests.post(self.url + endpoint_name, json=data, headers=headers)
         #logger.info('after %s call' % endpoint_name)
         return req
@@ -167,6 +168,7 @@ def run_server(server_urls=None, port=None):
             time.sleep(3.0)
             logger.info('about to yield')
             url = 'http://localhost:%s' % port
+            #url = 'http://localhost:%s' % "8080" # Just for debugging test
             yield Server(url, proc, tmp_dir_name)
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)

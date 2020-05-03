@@ -2,6 +2,7 @@ import random
 import logging
 import time
 import copy
+import math
 from lib import new_nonce, update_token, replacement_token
 
 logger = logging.getLogger(__name__)
@@ -53,12 +54,18 @@ class Client:
         self.locations.append(loc)
         self.current_location = loc
 
+    def _min(self, a):
+        return math.floor(min(a) * 10**self.bounding_box_minimum_dp) * 10**(-self.bounding_box_minimum_dp)
+
+    def _max(self, a):
+        return math.ceil(max(a) * 10**self.bounding_box_minimum_dp) * 10**(-self.bounding_box_minimum_dp)
+
     def _box(self):
         return {
-            'min_lat': round(min([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'min_long': round(min([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'max_lat': round(max([loc['lat'] for loc in self.locations]), self.bounding_box_minimum_dp),
-            'max_long': round(max([loc['long'] for loc in self.locations]), self.bounding_box_minimum_dp),
+            'min_lat': self._min(loc['lat'] for loc in self.locations),
+            'min_long': self._min(loc['long'] for loc in self.locations),
+            'max_lat': self._max(loc['lat'] for loc in self.locations),
+            'max_long': self._max(loc['long'] for loc in self.locations),
         }
 
     def _prefixes(self):
@@ -75,6 +82,7 @@ class Client:
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
                                                  since=self.since)
+        logging.info("poll result: %s" % (str(json_data)))
         self.since = json_data.get('until')
 
         self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
@@ -140,7 +148,8 @@ class Client:
             self.nonce = new_nonce()
             if replaces:
                 length = len(self.locations) + len(self.observed_ids)
-                self.server.status_update_json(status=self.status, nonce=self.nonce, replaces=replaces, length=length)
+                json_data = self.server.status_update_json(status=self.status, nonce=self.nonce, replaces=replaces, length=length)
+                logging.info("status/update result: %s" % (str(json_data)))
             else:
                 # Store the update_tokens on these ids, it will allow us to deduplicate echos
                 # TODO depending on tests, might want to only update and send ones not already sent
@@ -148,10 +157,11 @@ class Client:
                     o['update_token'] = self.next_updatetoken()
                 for loc in self.locations:
                     loc['update_token'] = self.next_updatetoken()
-                self.server.send_status_json(
+                json_data = self.server.send_status_json(
                     contacts=copy.deepcopy(self.observed_ids),
                     locations=[self._preprocessed_locations(loc) for loc in self.locations],
                     status=self.status, nonce=self.nonce, replaces=replaces)
+                logging.info("status/send result: %s" % (str(json_data)))
 
     # Action taken every 15 seconds
     def cron15(self):
@@ -225,6 +235,7 @@ def test_pseudoclient_work(server, data):
                 c.random_walk(10)
                 logging.info("%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
             for o in clients:
+                #time.sleep(1)
                 if o != c: # Skip self
                     if o._close_to(o.current_location, c.current_location):
                         c.observes(o)
