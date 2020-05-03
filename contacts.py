@@ -255,10 +255,10 @@ class SpatialDict(FSBackedThreeLevelDict):
     def __init__(self, directory):
         directory = directory + '/spatial_dict'
         os.makedirs(directory, 0o770, exist_ok=True)
-        super().__init__(directory)
         self.spatial_index = rtree.index.Index()
         self.keys = {}  # Maps key_tuple to key_QQ1
         self.coords = {}  # Maps key_QQ1 to key_tuple
+        super().__init__(directory)
         return
 
     def _key_tuple_from_blob(self, blob):

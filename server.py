@@ -50,7 +50,11 @@ def receive_signal(signal_number, frame):
     if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
         # testing is set
         logger.info('Testing is set')
-        contacts.reset()
+        try:
+            contacts.reset()
+        except:
+            logger.exception('error resetting, exiting')
+            reactor.stop()
     return
 
 

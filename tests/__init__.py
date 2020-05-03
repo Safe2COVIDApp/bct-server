@@ -99,14 +99,15 @@ class Server:
         assert resp.status_code == 200
         return resp.json()
 
-    def reset(self):
+    def reset(self, delete_files = True):
         logger.info('sending signal to server')
-        for file_name in os.listdir(self.directory):
-            file_path = os.path.join(self.directory, file_name)
-            if os.path.isfile(file_path):
-                os.unlink(file_path)
-            elif os.path.isdir(file_path):
-                shutil.rmtree(file_path)
+        if delete_files:
+            for file_name in os.listdir(self.directory):
+                file_path = os.path.join(self.directory, file_name)
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
         # os.kill(76617, SIGUSR1)
         self.proc.send_signal(SIGUSR1)
         logger.info('sent signal to server')
