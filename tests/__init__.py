@@ -35,7 +35,7 @@ class Server:
 
     def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
         # contacts and locations should already have update_tokens if want that functionality
-        logger.info('before %s call' % endpoint_name)
+        #logger.info('before %s call' % endpoint_name)
         data = {}
         if nonce and kwargs.get('replaces'):
             data['update_tokens'] = [
@@ -52,7 +52,7 @@ class Server:
         data.update(kwargs)
         # pdb.set_trace()
         req = requests.post(self.url + endpoint_name, json=data, headers=headers)
-        logger.info('after %s call' % endpoint_name)
+        #logger.info('after %s call' % endpoint_name)
         return req
 
     def send_status(self, nonce=None, contacts=None, locations=None, **kwargs):

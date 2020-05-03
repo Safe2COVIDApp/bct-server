@@ -16,7 +16,7 @@ STATUS_HEALTHY = 4
 # Note - 1 meter at the equator (and we start at 0,0) is approx 0.00001 degree of long
 class Client:
 
-    def __init__(self, server=None, data=None, **kwargs):
+    def __init__(self, server=None, data=None, name="Unnamed", **kwargs):
         # TODO-MITRA - check prefix length - when is it bits and when characters
         self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
@@ -28,6 +28,7 @@ class Client:
         # Access generic test functions and data
         self.server = server
         self.data = data
+        self.name = name
 
         # Initialize arrays where we remember things
         self.ids_used = []
@@ -65,7 +66,7 @@ class Client:
 
     # This is a very crude "_close_to" function, could obviously be much better.
     def _close_to(self, otherloc, loc):
-        return abs(otherloc['lat'] - loc['lat']) + abs(otherloc['long'] - loc['long']) * scale1meter <= self.safe_distance
+        return (abs(otherloc['lat'] - loc['lat']) + abs(otherloc['long'] - loc['long'])) * scale1meter <= self.safe_distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
@@ -160,11 +161,11 @@ class Client:
     def cron_hourly(self):
         self.poll()
 
-    # Randomly move up to 10 meters in any direction
-    def random_walk(self):
+    # Randomly move up to distance meters in any direction
+    def random_walk(self, distance):
         self.move_to({
-            'lat': self.current_location.get('lat') + random.randrange(-10, 10) / (10 * scale1meter),
-            'long': self.current_location.get('long') + random.randrange(-10, 10) / (10 * scale1meter)
+            'lat': self.current_location.get('lat') + random.randrange(-distance, distance) / (scale1meter),
+            'long': self.current_location.get('long') + random.randrange(-distance, distance) / (scale1meter)
         })
 
     # Simulate what happens when this client "observes" another, i.e. here's its bluetooth
@@ -179,14 +180,14 @@ class Client:
         self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 
 
-def test_pseudoclient_work(server, data):
+def test_pseudoclient_2people(server, data):
     server.reset()
     logging.info('Started test_pseudoclient_work')
-    alice = Client(server=server, data=data)
+    alice = Client(server=server, data=data, name="Alice")
     alice.init(data.init_req)
-    bob = Client(server=server, data=data)
+    bob = Client(server=server, data=data, name="Bob")
     bob.init(data.init_req)
-    bob.random_walk()  # Bob has been in two locations now
+    bob.random_walk(10)  # Bob has been in two locations now
     alice.observes(bob)
     bob.observes(alice)
     alice.update_status(STATUS_INFECTED)
@@ -205,3 +206,32 @@ def test_pseudoclient_work(server, data):
     assert len(bob.location_alerts) == 2
     assert bob.status == STATUS_HEALTHY
     logging.info('Completed test_pseudoclient_work')
+
+def test_pseudoclient_work(server, data):
+    numberOfClients = 3
+    chanceOfWalking = 1
+    chanceOfInfection = 4
+    steps = 10
+    clients = []
+    logging.info("Creating %s clients" % numberOfClients)
+    for i in range(numberOfClients):
+        c = Client(server=server, data=data, name = str(i))
+        c.init(data.init_req)
+        clients.append(c)
+    for steps in range(steps):
+        logging.info("===STEP %s ====", steps)
+        for c in clients:
+            if not random.randrange(0, chanceOfWalking):
+                c.random_walk(10)
+                logging.info("%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
+            for o in clients:
+                if o != c: # Skip self
+                    if o._close_to(o.current_location, c.current_location):
+                        c.observes(o)
+                        logging.info("%s: observed %s" % (c.name, o.name))
+            if not random.randrange(0, chanceOfInfection):
+                c.update_status(STATUS_PUI)
+                logging.info("%s: is PUI" % (c.name))
+            c.cron_hourly()
+
+
