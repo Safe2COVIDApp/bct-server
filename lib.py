@@ -11,10 +11,10 @@ logger = logging.getLogger(__name__)
 
 
 # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
-# verify(nonce, hashupdates(nonce)) == true;
+# verify(seed, hashupdates(seed)) == true;
 
-def hash_nonce(nonce):
-    return hashlib.sha1(nonce.encode()).hexdigest()
+def hash_nonce(seed):
+    return hashlib.sha1(seed.encode()).hexdigest()
 
 
 def fold_hash(hash40):
@@ -26,18 +26,18 @@ def random_ascii(length):
     return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
 
 
-def new_nonce(seed=None):
-    if not seed:
-        seed = random_ascii(8)
-    return hash_nonce(seed)  # first hash_nonce is to get size same as updates
+def new_seed(seed_string=None):
+    if not seed_string:
+        seed_string = random_ascii(8)
+    return hash_nonce(seed_string)  # first hash_nonce is to get size same as updates
 
 
-# This group of functions centralize the process and cryptography for nonce -> replacement_token -> update_token
+# This group of functions centralize the process and cryptography for seed -> replacement_token -> update_token
 
-# Generate Replacement token from nonce + n (which should increment)
-# Requirements - none reversible, cannot be used to find the nonce, or any other replacement_token
-def replacement_token(nonce, n):
-    return hash_nonce(nonce + str(n))
+# Generate Replacement token from seed + n (which should increment)
+# Requirements - none reversible, cannot be used to find the seed, or any other replacement_token
+def replacement_token(seed, n):
+    return hash_nonce(seed + str(n))
 
 
 # Generate Update Token from Replacement Token
