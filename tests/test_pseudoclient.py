@@ -179,17 +179,13 @@ class Client:
     # 8: Alice was Infected but recovers (Healthy, or another Unknown) - nothing sent
     # Infected -> PUI shouldn't happen
     def update_status(self, new_status):
-        if new_status != self.status:  # Its changed
-            if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and new_status in [STATUS_PUI,
-                                                                                  STATUS_INFECTED]:  # Cases #1 or #4
-                assert not self.seed
-                self._send_to(new_status)
-            elif self.status == STATUS_PUI:  # Cases #2 or #3 above, self.seed should be set
-                assert self.seed
-                self._update_to(new_status)
-            else:  # Cases #5, #6 (H|U -> H|U) or #8 I-> ?
-                pass
-            self.status = new_status
+        if self.status == STATUS_PUI and new_status != self.status:  # Cases #2 or #3 above, self.seed should be set
+            assert self.seed
+            self._update_to(new_status)
+        # This covers cases #1 and #4 (H|U -> P|I) plus any newly observed ids or visited locations while P|I
+        if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
+            self._send_to(new_status)
+        self.status = new_status
 
     # Action taken every 15 seconds
     def cron15(self):

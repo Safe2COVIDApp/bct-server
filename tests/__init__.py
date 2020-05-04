@@ -169,7 +169,7 @@ def run_server(server_urls=None, port=None):
             time.sleep(3.0)
             logger.info('about to yield')
             url = 'http://localhost:%s' % port
-            url = 'http://localhost:%s' % "8080" # Just for debugging test
+            #url = 'http://localhost:%s' % "8080" # Just for debugging test
             yield Server(url, proc, tmp_dir_name)
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)
