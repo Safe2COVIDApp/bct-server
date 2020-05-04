@@ -131,7 +131,7 @@ class Client:
         c['update_token'] = self._next_updatetoken()
         return copy.deepcopy(c)
 
-    def _prep_loc(self, location):
+    def _prep_location(self, location):
         location['update_token'] = self._next_updatetoken()
         loc = copy.deepcopy(location)
         for k in ['lat', 'long']:
@@ -150,18 +150,15 @@ class Client:
         if not self.seed:
             self.seed = new_seed()
             self.length = 0
-        for o in self.observed_ids:
-            o['update_token'] = self._next_updatetoken()
-        for loc in self.locations:
-            loc['update_token'] = self._next_updatetoken()
         json_data = self.server.send_status_json(
             contacts=[self._prep_contact(c) for c in self.observed_ids if not c.get('update_token')],
             locations=[self._prep_location(loc) for loc in self.locations if not loc.get('update_token')],
-            status=self.status)
+            status=new_status)
         logging.info("%s: status/send result: %s" % (self.name, str(json_data)))
 
     def _update_to(self, new_status):
         replaces = self.seed  # Will be None the first time
+        self.seed = new_seed()
         length = len(self.locations) + len(self.observed_ids)
         json_data = self.server.status_update_json(status=new_status, seed=self.seed, replaces=replaces, length=length)
         logging.info("status/update result: %s" % (str(json_data)))
@@ -214,7 +211,7 @@ class Client:
         self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 
 
-def test_pseudoclient_2people(server, data):
+def test_pseudoclient_2client(server, data):
     server.reset()
     logging.info('Started test_pseudoclient_work')
     alice = Client(server=server, data=data, name="Alice")
@@ -224,21 +221,26 @@ def test_pseudoclient_2people(server, data):
     bob.random_walk(10)  # Bob has been in two locations now
     alice.observes(bob)
     bob.observes(alice)
-    alice.update_status(STATUS_INFECTED)
+    logging.info("==Alice sends in a status of Infected(4) along with Bob's id and a location")
+    alice.update_status(STATUS_PUI)
+    logging.info("==Bob polls and should see Alice's notice with both ID and location")
     bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     assert len(bob.location_alerts) == 1
-    assert bob.status == STATUS_PUI
-    bob.cron_hourly()  # Bob polls and should get its own report back
-    alice.update_status(STATUS_HEALTHY)
+    assert bob.status == STATUS_UNKNOWN
+    logging.info("==Alice updates her status=1 (Infected)")
+    alice.update_status(STATUS_INFECTED)
+    logging.info("==Bob polls and should see the updated ID and location from Alice with status=1(Infected); he'll send in his own status as PUI with his own location and ids")
     bob.cron_hourly()  # Bob polls and should get the update from alice
     assert len(bob.id_alerts) == 2
     assert len(bob.location_alerts) == 2
-    assert bob.status == STATUS_HEALTHY
+    assert bob.status == STATUS_PUI
+    logging.info("==Bob polls and should see his own status=3(PUI) coming back, but ignore it")
+    bob.cron_hourly()  # Bob polls and should get the update from alice
     logging.info('Completed test_pseudoclient_work')
 
 
-def test_pseudoclient_work(server, data):
+def test_pseudoclient_multiclient(server, data):
     number_of_initial_clients = 3
     add_client_each_step = True
     chance_of_walking = 1
