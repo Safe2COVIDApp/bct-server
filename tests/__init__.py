@@ -33,13 +33,13 @@ class Server:
         logger.info('after sync call')
         return req
 
-    def _status(self, endpoint_name, nonce, contacts, locations, **kwargs):
+    def _status(self, endpoint_name, seed, contacts, locations, **kwargs):
         # contacts and locations should already have update_tokens if want that functionality
         #logger.info('before %s call' % endpoint_name)
         data = {}
-        if nonce and kwargs.get('replaces'):
+        if seed and kwargs.get('replaces'):
             data['update_tokens'] = [
-                update_token(replacement_token(nonce, i))
+                update_token(replacement_token(seed, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
             data['contacts'] = contacts
@@ -56,27 +56,27 @@ class Server:
         #logger.info('after %s call' % endpoint_name)
         return req
 
-    def send_status(self, nonce=None, contacts=None, locations=None, **kwargs):
-        return self._status('/status/send', nonce, contacts, locations, **kwargs)
+    def send_status(self, seed=None, contacts=None, locations=None, **kwargs):
+        return self._status('/status/send', seed, contacts, locations, **kwargs)
 
-    def send_status_json(self, nonce=None, contacts=None, locations=None, **kwargs):
-        resp = self.send_status(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
+    def send_status_json(self, seed=None, contacts=None, locations=None, **kwargs):
+        resp = self.send_status(seed=seed, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
-    def scan_status(self, nonce=None, contacts=None, locations=None, **kwargs):
-        return self._status('/status/scan', nonce, contacts, locations, **kwargs)
+    def scan_status(self, seed=None, contacts=None, locations=None, **kwargs):
+        return self._status('/status/scan', seed, contacts, locations, **kwargs)
 
-    def scan_status_json(self, nonce=None, contacts=None, locations=None, **kwargs):
-        resp = self.scan_status(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
+    def scan_status_json(self, seed=None, contacts=None, locations=None, **kwargs):
+        resp = self.scan_status(seed=seed, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
-    def status_update(self, nonce=None, contacts=None, locations=None, **kwargs):  # Must have replaces
-        return self._status('/status/update', nonce, None, None, **kwargs)
+    def status_update(self, seed=None, contacts=None, locations=None, **kwargs):  # Must have replaces
+        return self._status('/status/update', seed, None, None, **kwargs)
 
-    def status_update_json(self, nonce=None, contacts=None, locations=None, **kwargs):  # Must have replaces
-        resp = self.status_update(nonce=nonce, contacts=contacts, locations=locations, **kwargs)
+    def status_update_json(self, seed=None, contacts=None, locations=None, **kwargs):  # Must have replaces
+        resp = self.status_update(seed=seed, contacts=contacts, locations=locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
@@ -161,21 +161,21 @@ def run_server(server_urls=None, port=None):
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
         open(config_file_path, 'w').write(config_data)
-        with Popen([python, 'server.py', '--config_file', config_file_path], stderr=PIPE) as proc:
+        with Popen([python, 'server.py', '--config_file', config_file_path]) as proc:
             logger.info('waiting for server to startup')
             # let's give the server some time to start
             # Note 2.0 was too short
             time.sleep(3.0)
             logger.info('about to yield')
             url = 'http://localhost:%s' % port
-            #url = 'http://localhost:%s' % "8080" # Just for debugging test
+            url = 'http://localhost:%s' % "8080" # Just for debugging test
             yield Server(url, proc, tmp_dir_name)
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)
             proc.terminate()
-            for line in proc.stderr.readlines():
-                logger.info('%s output: %s' % (url, line))
-            logger.info('terminated')
+            #for line in proc.stderr.readlines():
+            #    logger.info('%s output: %s' % (url, line))
+            #logger.info('terminated')
     return
 
 

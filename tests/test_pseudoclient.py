@@ -3,7 +3,7 @@ import logging
 import time
 import copy
 import math
-from lib import new_nonce, update_token, replacement_token
+from lib import new_seed, update_token, replacement_token
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ class Client:
         self.move_to({'lat': 0, 'long': 0})
         self.length = 0
         self.status = STATUS_HEALTHY  # Healthy
-        self.nonce = None  # Nonce on any status that might need updating
+        self.seed = None  # Seed on any status that might need updating
         self.since = None
 
     def new_id(self):
@@ -55,10 +55,10 @@ class Client:
         self.current_location = loc
 
     def _min(self, a):
-        return math.floor(min(a) * 10**self.bounding_box_minimum_dp) * 10**(-self.bounding_box_minimum_dp)
+        return math.floor(min(a) * 10 ** self.bounding_box_minimum_dp) * 10 ** (-self.bounding_box_minimum_dp)
 
     def _max(self, a):
-        return math.ceil(max(a) * 10**self.bounding_box_minimum_dp) * 10**(-self.bounding_box_minimum_dp)
+        return math.ceil(max(a) * 10 ** self.bounding_box_minimum_dp) * 10 ** (-self.bounding_box_minimum_dp)
 
     def _box(self):
         return {
@@ -71,18 +71,19 @@ class Client:
     def _prefixes(self):
         return [i[:self.prefix_length] for i in self.ids_used]
 
-    # This is a very crude "_close_to" function, could obviously be much better.
-    def _close_to(self, otherloc, loc):
-        return (abs(otherloc['lat'] - loc['lat']) + abs(otherloc['long'] - loc['long'])) * scale1meter <= self.safe_distance
+    # This is a very crude "close_to" function, could obviously be much better.
+    def close_to(self, otherloc, loc):
+        return (abs(otherloc['lat'] - loc['lat']) + abs(
+            otherloc['long'] - loc['long'])) * scale1meter <= self.safe_distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
-        return any(self._close_to(pastloc, loc) for pastloc in self.locations)
+        return any(self.close_to(pastloc, loc) for pastloc in self.locations)
 
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
                                                  since=self.since)
-        logging.info("poll result: %s" % (str(json_data)))
+        logging.info("%s: poll result: %s" % (self.name, str(json_data)))
         self.since = json_data.get('until')
 
         self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
@@ -126,42 +127,69 @@ class Client:
     def listen(self, contact_id):
         self.observed_ids.append({'id': contact_id, 'duration': 15})
 
-    def _preprocessed_locations(self, location):
+    def _prep_contact(self, c):
+        c['update_token'] = self._next_updatetoken()
+        return copy.deepcopy(c)
+
+    def _prep_loc(self, location):
+        location['update_token'] = self._next_updatetoken()
         loc = copy.deepcopy(location)
         for k in ['lat', 'long']:
             loc[k] = round(location[k], self.location_resolution)
         return loc
 
-    def next_updatetoken(self):
-        if not self.nonce:
-            self.nonce = new_nonce()
-            self.length = 0
-        ut = update_token(replacement_token(self.nonce, self.length))
+    def _next_updatetoken(self):
+        ut = update_token(replacement_token(self.seed, self.length))
         self.length += 1
         return ut
 
-    # Send current status to server (on change of status)
+    def _send_to(self, new_status):
+        # Store the update_tokens on these ids, it will allow us to deduplicate echos
+        # TODO depending on tests, might want to only update and send ones not already sent
+        logging.info("%s: status/send: %s" % (self.name, new_status))
+        if not self.seed:
+            self.seed = new_seed()
+            self.length = 0
+        for o in self.observed_ids:
+            o['update_token'] = self._next_updatetoken()
+        for loc in self.locations:
+            loc['update_token'] = self._next_updatetoken()
+        json_data = self.server.send_status_json(
+            contacts=[self._prep_contact(c) for c in self.observed_ids if not c.get('update_token')],
+            locations=[self._prep_location(loc) for loc in self.locations if not loc.get('update_token')],
+            status=self.status)
+        logging.info("%s: status/send result: %s" % (self.name, str(json_data)))
+
+    def _update_to(self, new_status):
+        replaces = self.seed  # Will be None the first time
+        length = len(self.locations) + len(self.observed_ids)
+        json_data = self.server.status_update_json(status=new_status, seed=self.seed, replaces=replaces, length=length)
+        logging.info("status/update result: %s" % (str(json_data)))
+        self.seed = None  # Any further status change is a new incident, there is no mechanism to re-update
+
+    # Set status - if its changed, then send current status to server (on change of status)
+    # There are only a few valid transitions
+    # 1: Alice Healthy or Unknown receives notification (from #2 or #4) becomes PUI - status/send causes Bob #5
+    # 2: Alice PUI tests positive (goes to Infected) - status/update pushes Bob from Unknown (because of this client's #1) to PUI (that  #1)
+    # 3: Alice PUI tests negative (goes to Healthy or Unknown) - status/update causes Bob #6
+    # 4: Alice Healthy or Unknown tests directly positive (goes to Infected) - status/send pushes Bob Healthy or Unknown to PUI (see #1)
+    # Or as a result of a poll.
+    # 5: Bob receives notification (from Alice status/send or status/update #1) changes Healthy to Unknown - doesn't send anything out
+    # 6: Bob receives notification (from Alice status/update #3) changes Unknown to Healthy, nothing sent
+    # 8: Alice was Infected but recovers (Healthy, or another Unknown) - nothing sent
+    # Infected -> PUI shouldn't happen
     def update_status(self, new_status):
         if new_status != self.status:  # Its changed
+            if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and new_status in [STATUS_PUI,
+                                                                                  STATUS_INFECTED]:  # Cases #1 or #4
+                assert not self.seed
+                self._send_to(new_status)
+            elif self.status == STATUS_PUI:  # Cases #2 or #3 above, self.seed should be set
+                assert self.seed
+                self._update_to(new_status)
+            else:  # Cases #5, #6 (H|U -> H|U) or #8 I-> ?
+                pass
             self.status = new_status
-            replaces = self.nonce  # Will be None the first time
-            self.nonce = new_nonce()
-            if replaces:
-                length = len(self.locations) + len(self.observed_ids)
-                json_data = self.server.status_update_json(status=self.status, nonce=self.nonce, replaces=replaces, length=length)
-                logging.info("status/update result: %s" % (str(json_data)))
-            else:
-                # Store the update_tokens on these ids, it will allow us to deduplicate echos
-                # TODO depending on tests, might want to only update and send ones not already sent
-                for o in self.observed_ids:
-                    o['update_token'] = self.next_updatetoken()
-                for loc in self.locations:
-                    loc['update_token'] = self.next_updatetoken()
-                json_data = self.server.send_status_json(
-                    contacts=copy.deepcopy(self.observed_ids),
-                    locations=[self._preprocessed_locations(loc) for loc in self.locations],
-                    status=self.status, nonce=self.nonce, replaces=replaces)
-                logging.info("status/send result: %s" % (str(json_data)))
 
     # Action taken every 15 seconds
     def cron15(self):
@@ -174,8 +202,8 @@ class Client:
     # Randomly move up to distance meters in any direction
     def random_walk(self, distance):
         self.move_to({
-            'lat': self.current_location.get('lat') + random.randrange(-distance, distance) / (scale1meter),
-            'long': self.current_location.get('long') + random.randrange(-distance, distance) / (scale1meter)
+            'lat': self.current_location.get('lat') + random.randrange(-distance, distance) / scale1meter,
+            'long': self.current_location.get('long') + random.randrange(-distance, distance) / scale1meter
         })
 
     # Simulate what happens when this client "observes" another, i.e. here's its bluetooth
@@ -217,32 +245,52 @@ def test_pseudoclient_2people(server, data):
     assert bob.status == STATUS_HEALTHY
     logging.info('Completed test_pseudoclient_work')
 
+
 def test_pseudoclient_work(server, data):
-    numberOfClients = 3
-    chanceOfWalking = 1
-    chanceOfInfection = 4
-    steps = 10
+    number_of_initial_clients = 3
+    add_client_each_step = True
+    chance_of_walking = 1
+    chance_of_infection = 3  # Chance of having an infection status change event (other than through interaction with another test subject)
+    chance_of_test_positive = 2  # Chance that a PUI tests positive is 1:2
+    chance_of_recovery = 10  # Average 10 steps before recover
+    steps = 5   # Work is proportional to square of this if add_client_each_step
     clients = []
-    logging.info("Creating %s clients" % numberOfClients)
-    for i in range(numberOfClients):
-        c = Client(server=server, data=data, name = str(i))
+
+    def _add_client():
+        c = Client(server=server, data=data, name=str(len(clients)))
         c.init(data.init_req)
         clients.append(c)
+
+    logging.info("Creating %s clients" % number_of_initial_clients)
+    for i in range(number_of_initial_clients):
+        _add_client()
     for steps in range(steps):
         logging.info("===STEP %s ====", steps)
+        if add_client_each_step:
+            _add_client()
         for c in clients:
-            if not random.randrange(0, chanceOfWalking):
+            if not random.randrange(0, chance_of_walking):
                 c.random_walk(10)
-                logging.info("%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
+                logging.info(
+                    "%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
             for o in clients:
-                #time.sleep(1)
-                if o != c: # Skip self
-                    if o._close_to(o.current_location, c.current_location):
+                # time.sleep(1)
+                if o != c:  # Skip self
+                    if o.close_to(o.current_location, c.current_location):
                         c.observes(o)
                         logging.info("%s: observed %s" % (c.name, o.name))
-            if not random.randrange(0, chanceOfInfection):
-                c.update_status(STATUS_PUI)
-                logging.info("%s: is PUI" % (c.name))
+            new_status = c.status
+            if c.status == STATUS_PUI:
+                if not random.randrange(0, chance_of_test_positive):
+                    new_status = STATUS_INFECTED
+                else:
+                    new_status = STATUS_HEALTHY
+            else:
+                if c.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, chance_of_infection):
+                    new_status = STATUS_PUI
+                elif c.status in [STATUS_INFECTED] and not random.randrange(0, chance_of_recovery):
+                    new_status = STATUS_HEALTHY
+            if new_status != c.status:
+                logging.info("%s: status change %s -> %s" % (c.name, c.status, new_status))
+                c.update_status(new_status)
             c.cron_hourly()
-
-
