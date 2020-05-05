@@ -105,7 +105,8 @@ class Server:
         if delete_files:
             for file_name in os.listdir(self.directory):
                 file_path = os.path.join(self.directory, file_name)
-                if os.path.isfile(file_path):
+                if os.path.isfile(file_path) and (file_name not in ['log.txt']):
+                    logger.info('file path is %s' % file_path)
                     os.unlink(file_path)
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
@@ -157,8 +158,9 @@ def run_server(server_urls=None, port=None):
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_path = tmp_dir_name + '/config.ini'
-        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\n' % (
-            tmp_dir_name, port)
+        log_file_path = tmp_dir_name + '/log.txt'
+        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\nLOG_FILE_PATH = %s\n' % (
+            tmp_dir_name, port, log_file_path)
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
         open(config_file_path, 'w').write(config_data)
@@ -174,8 +176,9 @@ def run_server(server_urls=None, port=None):
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)
             proc.terminate()
-            #for line in proc.stderr.readlines():
-            #    logger.info('%s output: %s' % (url, line))
+            for line in open(log_file_path).readlines():
+                line.replace('\n', '')
+                logger.info('%s output: %s' % (url, line))
             #logger.info('terminated')
     return
 
