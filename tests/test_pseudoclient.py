@@ -4,6 +4,7 @@ import time
 import copy
 import math
 from lib import new_seed, update_token, replacement_token
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -310,7 +311,7 @@ def test_pseudoclient_multiclient(server, data):
 # Example of test jacket
 # But note this needs "server" because everything from here on down does
 # Also note can uncomment one line in __init__.py to point url at a separate server rather than the one created by pytest
-def spawn_clients_one_test(server, data, n_clients=1, n_steps=1):
+def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     step_parameters = {
         'chance_of_walking': 1,
         'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
@@ -324,7 +325,12 @@ def spawn_clients_one_test(server, data, n_clients=1, n_steps=1):
         c = Client(server=server, data=data, name="Client-"+str(i))
         c.init(data.init_req)
         clients.append(c)
+    threads = []
     for c in clients:
         # This next line is the one we want to multithread
-        c.simulation_step(step_parameters, clients)
+        this_thread = Thread(target=c.simulation_step, args = (step_parameters, clients,))
+        threads.append(this_thread)
+        this_thread.start()
+    for t in threads:
+        t.join()
 
