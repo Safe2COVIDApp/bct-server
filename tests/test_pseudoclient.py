@@ -203,7 +203,9 @@ class Client:
     def observes(self, other):
         self.listen(other.broadcast())
 
-    def init(self, json_data):
+    def init(self, init_data):
+        json_data = copy.deepcopy(init_data)
+        json_data['status'] = self.status
         self.init_resp = self.server.init(json_data)
         self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp,
                                            self.init_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp))
