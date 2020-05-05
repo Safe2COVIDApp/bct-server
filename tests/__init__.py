@@ -159,7 +159,7 @@ def run_server(server_urls=None, port=None):
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_path = tmp_dir_name + '/config.ini'
         log_file_path = tmp_dir_name + '/log.txt'
-        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\nLOG_FILE_NAME = %s\n' % (
+        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\nLOG_FILE_PATH = %s\n' % (
             tmp_dir_name, port, log_file_path)
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls

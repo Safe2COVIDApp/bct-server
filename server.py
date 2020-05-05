@@ -67,7 +67,7 @@ atexit.register(contacts.close)
 servers_file_path = '%s/.servers' % config['directory']
 
 
-mlog_file_name = config.get('log_file_name')
+mlog_file_path = config.get('log_file_path')
 log_observer = None
 def reset_log_file():
     global log_observer
@@ -75,8 +75,8 @@ def reset_log_file():
         print('removing log observer')
         globalLogPublisher.removeObserver(log_observer)
     info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(config['log_level'].lower()))
-    if mlog_file_name:
-        mlog_file = open(mlog_file_name, 'a+')
+    if mlog_file_path:
+        mlog_file = open(mlog_file_path, 'a+')
     else:
         mlog_file = sys.stderr
 
