@@ -48,7 +48,7 @@ contacts = Contacts(config)
 
 # noinspection PyUnusedLocal
 def receive_signal(signal_number, frame):
-    logger.warning('Received signal: {signal_number}', signal_number = signal_number)
+    logger.info('Received signal: {signal_number}', signal_number = signal_number)
     if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
         # testing is set
         logger.info('Testing is set')
@@ -71,11 +71,9 @@ mlog_file_name = config.get('log_file_name')
 log_observer = None
 def reset_log_file():
     global log_observer
-    print('in rlf')
     if log_observer:
         print('removing log observer')
         globalLogPublisher.removeObserver(log_observer)
-    print('a')
     info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(config['log_level'].lower()))
     if mlog_file_name:
         mlog_file = open(mlog_file_name, 'a+')
