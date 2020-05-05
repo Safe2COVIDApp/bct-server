@@ -24,9 +24,9 @@ logger = logging.getLogger(__name__)
 def _good_date(date, since=None, now=None):
     return ((not since) or (since <= date)) and ((not now) or (date < now))
 
-
+# For now, all we do is capture these as statistics, later we could capture in a table and analyse
 init_statistics_fields = ['application_name', 'application_version', 'phone_type', 'region', 'health_provider',
-                          'language']
+                          'language', 'status']
 
 
 class FSBackedThreeLevelDict:
