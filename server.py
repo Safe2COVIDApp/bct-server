@@ -36,12 +36,12 @@ def get_config():
         conf.read_string(contents)
     else:
         conf.read(args.config_file)
-    return conf['DEFAULT']
+    return conf
 
 
-config = get_config()
-
-contacts = Contacts(config)
+config_top = get_config()
+config = config_top['DEFAULT']
+contacts = Contacts(config_top)
 
 
 # noinspection PyUnusedLocal

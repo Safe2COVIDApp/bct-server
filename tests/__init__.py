@@ -157,10 +157,11 @@ def run_server(server_urls=None, port=None):
     with TemporaryDirectory() as tmp_dir_name:
         logger.info('created temporary directory %s' % tmp_dir_name)
         config_file_path = tmp_dir_name + '/config.ini'
-        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\nAPP_TESTING = 2.0\n' % (
+        config_data = '[DEFAULT]\nDIRECTORY = %s\nLOG_LEVEL = INFO\nPORT = %d\nTesting = True\n"BOUNDING_BOX_MINIMUM_DP = 2\nBOUNDING_BOX_MAXIMUM_SIZE = 0.001\nLOCATION_RESOLUTION = 4\n' % (
             tmp_dir_name, port)
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
+        config_data += '[APPS]\nTESTING_VERSION = 2.0\n'
         open(config_file_path, 'w').write(config_data)
         with Popen([python, 'server.py', '--config_file', config_file_path]) as proc:
             logger.info('waiting for server to startup')

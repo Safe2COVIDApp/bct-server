@@ -344,7 +344,8 @@ def register_method(_func=None, *, route):
 
 class Contacts:
 
-    def __init__(self, config):
+    def __init__(self, config_top):
+        config = config_top['DEFAULT']
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
@@ -353,7 +354,7 @@ class Contacts:
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = {}
-        self.config = config  # used in init
+        self.config_apps = config_top['APPS']
         self.statistics = {}
         for k in init_statistics_fields:
             self.statistics[k] = 0
@@ -530,7 +531,7 @@ class Contacts:
             self.statistics[k] += 1
         # TODO-83
         app_name = data.get('application_name')
-        app_current_version = self.config.getfloat('APP_' + app_name)
+        app_current_version = self.config_apps.getfloat(app_name + "_VERSION")
         ret = {
             # "messaging_url": "", "messaging_version": 1, # TODO-84 - delayed till clients capable
             "bounding_box_minimum_dp": self.bb_min_dp,
