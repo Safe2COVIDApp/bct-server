@@ -148,6 +148,9 @@ def get_free_port():
 
 
 # this can be run as a primary server or a secondary one syncing from a primary one
+#
+# TODO-DAN note that currently uncommenting one line ignores the server created here and talks to a specific other server,
+# TODO-DAN I'm sure that much of this could be bypassed in that case, but I am not sure how as it passes proc and tmp_dir_name to Server()
 def run_server(server_urls=None, port=None):
     # setup server
     # yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')

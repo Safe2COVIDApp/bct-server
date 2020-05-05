@@ -21,9 +21,9 @@ class Client:
         # TODO-MITRA - check prefix length - when is it bits and when characters
         self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
-        self.safe_distance = 2  # Meters
-        self.location_resolution = 4  # lat/long decimal points
-        self.bounding_box_minimum_dp = 2  # Updated after init
+        self.safe_distance = 20  # Distance apart in meters of a GPS report (note because rounding to 10meters in location_resolution this needs to be 20
+        self.location_resolution = 4  # lat/long decimal points - 4 is 10 meters
+        self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
 
         # Access generic test functions and data
@@ -72,13 +72,13 @@ class Client:
         return [i[:self.prefix_length] for i in self.ids_used]
 
     # This is a very crude "close_to" function, could obviously be much better.
-    def close_to(self, otherloc, loc):
+    def close_to(self, otherloc, loc, distance):
         return (abs(otherloc['lat'] - loc['lat']) + abs(
-            otherloc['long'] - loc['long'])) * scale1meter <= self.safe_distance
+            otherloc['long'] - loc['long'])) * scale1meter <= distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
-        return any(self.close_to(pastloc, loc) for pastloc in self.locations)
+        return any(self.close_to(pastloc, loc, self.safe_distance) for pastloc in self.locations)
 
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
@@ -210,6 +210,41 @@ class Client:
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
         self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 
+    def simulation_step(self, step_parameters, readonly_clients):
+        """
+
+        :param simulation_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
+        :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
+        :return:
+        """
+        for step in range(0,step_parameters['steps']):
+            if not random.randrange(0, step_parameters['chance_of_walking']):
+                self.random_walk(10)
+                logging.info(
+                    "%s: walked to %.5fN,%.5fW" % (self.name, self.current_location['lat'], self.current_location['long']))
+            # In this step we look at a provided read_only array to see who is close to ourselves,
+            # TODO-DAN this presumes we can access this across threads
+            for o in readonly_clients:
+                if o != self:  # Skip self
+                    if o.close_to(o.current_location, self.current_location, step_parameters['bluetooth_range']):
+                        self.observes(o)
+                        logging.info("%s: observed %s" % (self.name, o.name))
+            new_status = self.status
+            if self.status == STATUS_PUI:
+                if not random.randrange(0, step_parameters['chance_of_test_positive']):
+                    new_status = STATUS_INFECTED
+                else:
+                    new_status = STATUS_HEALTHY
+            else:
+                if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, step_parameters['chance_of_infection']):
+                    new_status = STATUS_PUI
+                elif self.status in [STATUS_INFECTED] and not random.randrange(0, step_parameters['chance_of_recovery']):
+                    new_status = STATUS_HEALTHY
+            if new_status != self.status:
+                logging.info("%s: status change %s -> %s" % (self.name, self.status, new_status))
+                self.update_status(new_status)
+            self.cron_hourly()  # Will poll for any data from server
+
 
 def test_pseudoclient_2client(server, data):
     server.reset()
@@ -239,15 +274,20 @@ def test_pseudoclient_2client(server, data):
     bob.cron_hourly()  # Bob polls and should get the update from alice
     logging.info('Completed test_pseudoclient_work')
 
-
 def test_pseudoclient_multiclient(server, data):
-    number_of_initial_clients = 3
-    add_client_each_step = True
-    chance_of_walking = 1
-    chance_of_infection = 3  # Chance of having an infection status change event (other than through interaction with another test subject)
-    chance_of_test_positive = 2  # Chance that a PUI tests positive is 1:2
-    chance_of_recovery = 10  # Average 10 steps before recover
-    steps = 5   # Work is proportional to square of this if add_client_each_step
+    simulation_parameters = {
+        'number_of_initial_clients': 3,
+        'add_client_each_step': True,
+        'steps': 5   # Work is proportional to square of this if add_client_each_step
+    }
+    step_parameters = {
+        'chance_of_walking': 1,
+        'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
+        'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
+        'chance_of_recovery': 10,  # Average 10 steps before recover
+        'bluetooth_range': 2,
+        'steps': 1,                 # Steps each client does on own before back to this level
+    }
     clients = []
 
     def _add_client():
@@ -255,35 +295,34 @@ def test_pseudoclient_multiclient(server, data):
         c.init(data.init_req)
         clients.append(c)
 
-    logging.info("Creating %s clients" % number_of_initial_clients)
-    for i in range(number_of_initial_clients):
+    logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
+    for i in range(simulation_parameters['number_of_initial_clients']):
         _add_client()
-    for steps in range(steps):
-        logging.info("===STEP %s ====", steps)
-        if add_client_each_step:
+    for steps in range(simulation_parameters['steps']):
+        logging.info("===STEP %s ====", simulation_parameters['steps'])
+        if simulation_parameters['add_client_each_step']:
             _add_client()
         for c in clients:
-            if not random.randrange(0, chance_of_walking):
-                c.random_walk(10)
-                logging.info(
-                    "%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
-            for o in clients:
-                if o != c:  # Skip self
-                    if o.close_to(o.current_location, c.current_location):
-                        c.observes(o)
-                        logging.info("%s: observed %s" % (c.name, o.name))
-            new_status = c.status
-            if c.status == STATUS_PUI:
-                if not random.randrange(0, chance_of_test_positive):
-                    new_status = STATUS_INFECTED
-                else:
-                    new_status = STATUS_HEALTHY
-            else:
-                if c.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, chance_of_infection):
-                    new_status = STATUS_PUI
-                elif c.status in [STATUS_INFECTED] and not random.randrange(0, chance_of_recovery):
-                    new_status = STATUS_HEALTHY
-            if new_status != c.status:
-                logging.info("%s: status change %s -> %s" % (c.name, c.status, new_status))
-                c.update_status(new_status)
-            c.cron_hourly()
+            c.simulation_step(step_parameters, clients)
+
+# Example of test jacket
+# But note this needs "server" because everything from here on down does
+# Also note can uncomment one line in __init__.py to point url at a separate server rather than the one created by pytest
+def spawn_clients_one_test(server, data, n_clients=1, n_steps=1):
+    step_parameters = {
+        'chance_of_walking': 1,
+        'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
+        'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
+        'chance_of_recovery': 10,  # Average 10 steps before recover
+        'bluetooth_range': 2,
+        'steps': n_steps,                 # Steps each client does on own before back to this level
+    }
+    clients = []
+    for i in range(0, n_clients):
+        c = Client(server=server, data=data, name="Client-"+str(i))
+        c.init(data.init_req)
+        clients.append(c)
+    for c in clients:
+        # This next line is the one we want to multithread
+        c.simulation_step(step_parameters, clients)
+
