@@ -1,12 +1,15 @@
 import argparse
 
+from twisted.logger import globalLogPublisher, Logger, globalLogBeginner
+from twisted.logger import LogLevelFilterPredicate, LogLevel
+from twisted.logger import textFileLogObserver, FilteringLogObserver
 from twisted.web import resource, server as twserver
 from twisted.internet import reactor, task
 from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
 from twisted.python import log
-import logging
+#import logging
 import json
 from contacts import Contacts
 import configparser
@@ -22,7 +25,6 @@ parser.add_argument('--config_file', default='config.ini',
                     help='config file name, if an http url then the config file contents are fetched over http')
 args = parser.parse_args()
 
-log.startLogging(sys.stderr)
 
 # self_string is used for syncing from neighbors, to ignore a sync from ourself
 self_string = uuid.uuid4().hex
@@ -46,14 +48,14 @@ contacts = Contacts(config)
 
 # noinspection PyUnusedLocal
 def receive_signal(signal_number, frame):
-    logger.warning('Received signal: %s' % signal_number)
+    logger.warning('Received signal: {signal_number}', signal_number = signal_number)
     if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
         # testing is set
         logger.info('Testing is set')
         try:
             contacts.reset()
         except:
-            logger.exception('error resetting, exiting')
+            logger.failure('error resetting, exiting')
             reactor.stop()
     return
 
@@ -63,13 +65,37 @@ signal.signal(signal.SIGUSR1, receive_signal)
 atexit.register(contacts.close)
 
 servers_file_path = '%s/.servers' % config['directory']
-logging.basicConfig(level=config['log_level'].upper())
-logger = logging.getLogger(__name__)
+
+
+mlog_file_name = config.get('log_file_name')
+log_observer = None
+def reset_log_file():
+    global log_observer
+    print('in rlf')
+    if log_observer:
+        print('removing log observer')
+        globalLogPublisher.removeObserver(log_observer)
+    print('a')
+    info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(config['log_level'].lower()))
+    if mlog_file_name:
+        mlog_file = open(mlog_file_name, 'a+')
+    else:
+        mlog_file = sys.stderr
+
+    mlog_observer = FilteringLogObserver(textFileLogObserver(mlog_file), predicates=[info_predicate])
+    globalLogPublisher.addObserver(mlog_observer)
+    
+        #logger.info('resetting log output file')
+    return
+
+reset_log_file()
+logger = Logger()
+globalLogBeginner.beginLoggingTo([])
 logger.info('starting server')
 
 try:
     servers = json.load(open(servers_file_path))
-    logger.info('read last read date from server neighbors from %s' % servers_file_path)
+    logger.info('read last read date from server neighbors from {servers_file_path}', servers_file_path = servers_file_path)
 except:  # TODO-DAN code checker doesn't like such a broad exception catch
     servers = {}
 if config.get('servers'):
@@ -83,9 +109,9 @@ allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:P
 
 def defered_function(function):
     def _defered_function():
-        logging.info('in thread, running %s' % function)
+        logger.info('in thread, running {function}', function = function)
         result = function()
-        logging.info('ran, result is %s' % result)
+        logger.info('ran, result is {result}', result = result)
         return result
 
     return _defered_function
@@ -101,7 +127,7 @@ def resolve_all_functions(ret, request):
     for key, value in ret.items():
         if 'function' == type(value).__name__:
             function_to_run_in_thread = defered_function(value)
-            logger.info('found a function for key %s, running as a deferred' % key)
+            logger.info('found a function for key {key}, running as a deferred', key = key)
             defered = deferToThread(function_to_run_in_thread)
             defered.addCallback(defered_result_available, key, ret, request)
             defered.addErrback(defered_result_error, request)
@@ -110,8 +136,7 @@ def resolve_all_functions(ret, request):
 
 
 def defered_result_error(failure, request):
-    logger.error("Logging an uncaught exception",
-                 exc_info=(failure.type, failure.value, failure.tb))
+    logger.failure("Logging an uncaught exception", failure = failure)
     request.setResponseCode(400)
     request.write(json.dumps({'error': 'internal error'}).encode())
     request.finish()
@@ -119,12 +144,12 @@ def defered_result_error(failure, request):
 
 
 def defered_result_available(result, key, ret, request):
-    logger.info('got result for key %s of %s' % (key, result))
+    logger.info('got result for key {key} of {result}', key = key, result = result)
     ret[key] = result
     ret = resolve_all_functions(ret, request)
     if twserver.NOT_DONE_YET != ret:
         # ok, finally done, let's return it
-        logger.info('writing HTTP result of %s' % ret)
+        logger.info('writing HTTP result of {ret}', ret = ret)
         request.write(json.dumps(ret).encode())
         request.finish()
     return
@@ -134,7 +159,7 @@ class Simple(resource.Resource):
     isLeaf = True
 
     def render(self, request):
-        logger.info('in render, request: %s, postpath is %s' % (request, request.postpath))
+        logger.info('in render, request: {request}, postpath is {post_path}', request = request, post_path = request.postpath)
         x_self_string_headers = request.requestHeaders.getRawHeaders('X-Self-String')
         if x_self_string_headers and (self_string in x_self_string_headers):
             logger.info('called by self, returning 302')
@@ -145,7 +170,7 @@ class Simple(resource.Resource):
         x_time_for_testing = request.requestHeaders.getRawHeaders('X-Testing-Time')
         if ('True' == config.get('Testing')) and x_time_for_testing:
             x_time_for_testing = float(x_time_for_testing[0])
-            logger.info('In testing and current time is being overridden with %f' % x_time_for_testing)
+            logger.info('In testing and current time is being overridden with {time}', time = x_time_for_testing)
             set_current_time_for_testing(x_time_for_testing)
 
         content_type_headers = request.requestHeaders.getRawHeaders('content-type')
@@ -153,29 +178,29 @@ class Simple(resource.Resource):
             data = json.load(request.content)
         else:
             data = request.content.read()
-        logger.info('request content: %s' % data)
+        logger.info('request content: {data}', data = data)
         # TODO-DAN code checker says this is shadowing outer-level "args" are you intending to overwrite that variable, and if not maybe rename here ?
         args = {k.decode(): [item for item in v] for k, v in request.args.items()}
 
         path = request.path.decode()
-        logger.info('path is %s' % path)
+        logger.info('path is {path}', path = path)
         request.responseHeaders.addRawHeader(b"content-type", b"application/json")
         if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
             ret = contacts.execute_route(path, data, args)
             if 'error' in ret:
                 request.setResponseCode(ret.get('status', 400))
                 ret = ret['error']
-                logger.info('error return is %s' % ret)
+                logger.info('error return is {ret}', ret = ret)
             else:
                 # if any values functions in ret, then run then asynchronously and return None here
                 # if they aren't then return ret
 
                 ret = resolve_all_functions(ret, request)
-                logger.info('legal return is %s' % ret)
+                logger.info('legal return is {ret}', ret = ret)
         else:
             request.setResponseCode(402)
             ret = {"error": "no such request"}
-            logger.info('return is %s' % ret)
+            logger.info('return is {ret}', ret = ret)
         if twserver.NOT_DONE_YET != ret:
             return json.dumps(ret).encode()
         else:
@@ -184,7 +209,7 @@ class Simple(resource.Resource):
 
 def sync_body(body, remote_server):
     data = json.loads(body)
-    logger.info('Response body in sync: %s, calling send status' % data)
+    logger.info('Response body in sync: {data}, calling send status', data = data)
     contacts.send_status(json.loads(body), None)
     servers[remote_server] = data['until']
     json.dump(servers, open(servers_file_path, 'w'))
@@ -211,7 +236,7 @@ def get_data_from_neighbors():
     logger.info("getting data from neighbors")
     for remote_server, last_request in servers.items():
         url = '%s/sync?since=%s' % (remote_server, last_request)
-        logger.info('getting data from %s' % url)
+        logger.info('getting data from {url}', url = url)
         agent = Agent(reactor)
 
         request = agent.request(
@@ -231,4 +256,9 @@ if 0 != len(servers):
 
 site = twserver.Site(Simple())
 reactor.listenTCP(int(config.get('port', 8080)), site)
+
+# gack, we can't reset this... we will try at another time
+#l = task.LoopingCall(reset_log_file)
+#l.start(10, now = False)
+
 reactor.run()

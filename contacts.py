@@ -1,6 +1,7 @@
 # the module contains the client and server process to manage ids
 
-import logging
+#import logging
+from twisted.logger import Logger
 import os
 import json
 import rtree
@@ -12,7 +13,7 @@ from blist import sortedlist
 
 os.umask(0o007)
 
-logger = logging.getLogger(__name__)
+logger = Logger()
 
 
 # Return a matching date - see issue#57 for discussion of a valid date
@@ -144,7 +145,7 @@ class FSBackedThreeLevelDict:
         os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
         file_name = '%s:%f.data' % (key, floating_seconds)
         file_path = '%s/%s' % (dir_name, file_name)
-        logger.info('writing %s to %s' % (value, self.directory + '/' + file_path))
+        logger.info('writing {value} to {directory}', value = value, directory = self.directory + '/' + file_path)
         with open(self.directory + '/' + file_path, 'w') as file:
             json.dump(value, file)
         self.sorted_list_by_time.add(floating_seconds)
@@ -171,7 +172,6 @@ class FSBackedThreeLevelDict:
         """
         get_file_paths_between_times returns a list of file_paths to retrieve and the last time that an entry was made
         """
-        logger.info('gfp %s' % self.sorted_list_by_time)
         times_to_retrieve = list(
             self.sorted_list_by_time[self.sorted_list_by_time.bisect(since):self.sorted_list_by_time.bisect(now - 1)])
         if 0 != len(times_to_retrieve):
@@ -219,7 +219,7 @@ class ContactDict(FSBackedThreeLevelDict):
         return
 
     def _map_over_matching_contacts(self, prefix, ids, since, now, start_pos=0):
-        logger.info('_map_over_matching_contacts called with %s, %s' % (prefix, ids.keys()))
+        logger.info('_map_over_matching_contacts called with {prefix}, {keys}', prefix = prefix, keys = ids.keys())
         if start_pos < 6:
             this_prefix = prefix[start_pos:]
             if len(this_prefix) >= 2:
@@ -445,7 +445,7 @@ class Contacts:
             contact_file_paths = []
             for prefix in prefixes:
                 contact_file_paths += self.contact_dict.map_over_matching_data(prefix, since, now)
-            logger.info('contact file_paths = %s' % contact_file_paths)
+            logger.info('contact file_paths = {file_paths}', file_paths = contact_file_paths)
 
             def get_contact_id_data():
                 return list(self.contact_dict.retrieve_json_from_file_paths(contact_file_paths))
@@ -463,7 +463,7 @@ class Contacts:
                                                                                 bounding_box['max_lat'],
                                                                                 bounding_box['max_long']), since, now)
 
-            logger.info('spatial file_paths = %s' % spatial_file_paths)
+            logger.info('spatial file_paths = {file_paths}', file_paths = spatial_file_paths)
 
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(spatial_file_paths))
