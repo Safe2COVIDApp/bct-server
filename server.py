@@ -12,6 +12,7 @@ from twisted.python import log
 #import logging
 import json
 from contacts import Contacts
+from portal import Portal
 import configparser
 import urllib.request
 import uuid
@@ -101,9 +102,12 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '1970-01-01T00:00Z'
 
-allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
+contacts_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
                      '/admin/status:GET', '/init:POST']
 
+portal_methods = ['/portal/user:POST']
+
+allowable_methods = contacts_methods + portal_methods
 
 def defered_function(function):
     def _defered_function():
@@ -183,8 +187,10 @@ class Simple(resource.Resource):
         path = request.path.decode()
         logger.info('path is {path}', path = path)
         request.responseHeaders.addRawHeader(b"content-type", b"application/json")
-        if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
-            ret = contacts.execute_route(path, data, args)
+        path_method = '%s:%s' % (path, request.method.decode())
+        if path_method in allowable_methods:
+            target = contacts if (path_method in contacts_methods) else portal
+            ret = target.execute_route(path, data, args)
             if 'error' in ret:
                 request.setResponseCode(ret.get('status', 400))
                 ret = ret['error']

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Client simulator</title>
+    <script language="JavaScript">
+        // TODO this will be the URL of the portal
+        var portal_url = 'http://localhost:8080/';
+        var provider = null;
+        var testid = null;
+        function encodeURIComponent(comp) {
+            return comp; //TODO should use standard Javascript function - not importable in this inline JS
+        }
+        function provider_selected(event)
+        {
+            provider = document.getElementById("provider").value;
+            //alert(provider);
+            setVisible();
+            return false;
+        }
+        function testid_entered(event)
+        {
+            testid = document.getElementById("testid").value;
+            setVisible();
+            //TODO send data to server
+            //TODO need hidden element = replaces
+            url = portal_url +
+            return false;
+        }
+        function hide_or_show(bool, x) {
+          let el = document.getElementById(x)
+          if (bool) {
+            el.style.display = "block";
+          } else {
+            el.style.display = "none";
+          }
+        }
+        function setVisible()
+        {
+          hide_or_show(provider === null, "provider_form");
+          hide_or_show(provider !== null && testid === null, "testid_form");
+          hide_or_show(provider !== null && testid !== null, "selfisolate");
+        }
+    </script>
+</head>
+<body>
+<!-- TODO populate this form from call to server -->
+<form onSubmit="return provider_selected()" id="provider_form">
+  <label for="provider">What is your healthcare provider:</label>
+  <select id="provider" name="provider">
+    <option value="kaiser_sf">Kaiser San Francisco</option>
+    <option value="bluecross_sf">Blue Cross San Francisco</option>
+  </select>
+  <input type="submit">
+</form>
+
+<form onSubmit="return testid_entered()" id="testid_form">
+  <label for="testid">What test ID did your provider give you?</label>
+    <input id="testid" type="text"/>
+    <input type="submit" value="Register">
+</form>
+<!-- TODO populate this from server -->
+<div id="selfisolate">
+Please isolate yourself until you receive your test results.
+</div>
+
+<script>
+    setVisible();
+</script>
+</body>
+</html>
