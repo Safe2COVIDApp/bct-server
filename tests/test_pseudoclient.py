@@ -4,6 +4,7 @@ import time
 import copy
 import math
 from lib import new_seed, update_token, replacement_token
+from threading import Thread
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +22,9 @@ class Client:
         # TODO-MITRA - check prefix length - when is it bits and when characters
         self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
-        self.safe_distance = 2  # Meters
-        self.location_resolution = 4  # lat/long decimal points
-        self.bounding_box_minimum_dp = 2  # Updated after init
+        self.safe_distance = 20  # Distance apart in meters of a GPS report (note because rounding to 10meters in location_resolution this needs to be 20
+        self.location_resolution = 4  # lat/long decimal points - 4 is 10 meters
+        self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
 
         # Access generic test functions and data
@@ -42,7 +43,8 @@ class Client:
         self.new_id()
         self.move_to({'lat': 0, 'long': 0})
         self.length = 0
-        self.status = STATUS_HEALTHY  # Healthy
+        self.local_status = STATUS_HEALTHY # This is status based on something external to notifications, for example self-reported symptoms or a test result
+        self.status = STATUS_HEALTHY  # Status based on local_status but also any alerts from others.
         self.seed = None  # Seed on any status that might need updating
         self.since = None
 
@@ -72,13 +74,13 @@ class Client:
         return [i[:self.prefix_length] for i in self.ids_used]
 
     # This is a very crude "close_to" function, could obviously be much better.
-    def close_to(self, otherloc, loc):
+    def close_to(self, otherloc, loc, distance):
         return (abs(otherloc['lat'] - loc['lat']) + abs(
-            otherloc['long'] - loc['long'])) * scale1meter <= self.safe_distance
+            otherloc['long'] - loc['long'])) * scale1meter <= distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
-        return any(self.close_to(pastloc, loc) for pastloc in self.locations)
+        return any(self.close_to(pastloc, loc, self.safe_distance) for pastloc in self.locations)
 
     def poll(self):
         json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
@@ -111,13 +113,7 @@ class Client:
         for loc in self.location_alerts:
             if loc.get('update_token') in location_updatetokens:
                 loc['replaced'] = True
-
-        # New status is minimum of any statuses that haven't been replaced +1
-        # (e.g. if user is Infected (1) we will be PUI (2)
-        new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
-                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
-                         + [STATUS_HEALTHY])
-        self.update_status(new_status)  # Correctly handles case of no change
+        self._recalculate_status()
 
     # Simulate broadcasting an id
     def broadcast(self):
@@ -164,7 +160,24 @@ class Client:
         logging.info("status/update result: %s" % (str(json_data)))
         self.seed = None  # Any further status change is a new incident, there is no mechanism to re-update
 
-    # Set status - if its changed, then send current status to server (on change of status)
+    # Set status based on a local observation e.g. notification of test or contact, or self-reported symptoms.
+    def local_status_event(self, new_status):
+        logging.info("%s: local status change %s -> %s" % (self.name, self.status, new_status))
+        self.local_status = new_status
+        self._recalculate_status()
+
+    # Work out any change in status, based on the rest of the state (id_alerts, location_alerts and external_status)
+    def _recalculate_status(self):
+        # New status is minimum of any statuses that haven't been replaced +1
+        # (e.g. if user is Infected (1) we will be PUI (2)
+        new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
+                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
+                         + [self.local_status])
+        if (new_status != self.status):
+            self._notify_status(new_status)  # Correctly handles case of no change
+            self.status = new_status
+
+    # Notify status and where required any observered ids and locations to server.
     # There are only a few valid transitions
     # 1: Alice Healthy or Unknown receives notification (from #2 or #4) becomes PUI - status/send causes Bob #5
     # 2: Alice PUI tests positive (goes to Infected) - status/update pushes Bob from Unknown (because of this client's #1) to PUI (that  #1)
@@ -175,14 +188,13 @@ class Client:
     # 6: Bob receives notification (from Alice status/update #3) changes Unknown to Healthy, nothing sent
     # 8: Alice was Infected but recovers (Healthy, or another Unknown) - nothing sent
     # Infected -> PUI shouldn't happen
-    def update_status(self, new_status):
+    def _notify_status(self, new_status):
         if self.status == STATUS_PUI and new_status != self.status:  # Cases #2 or #3 above, self.seed should be set
             assert self.seed
             self._update_to(new_status)
         # This covers cases #1 and #4 (H|U -> P|I) plus any newly observed ids or visited locations while P|I
         if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
             self._send_to(new_status)
-        self.status = new_status
 
     # Action taken every 15 seconds
     def cron15(self):
@@ -212,6 +224,38 @@ class Client:
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
         self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
 
+    def simulation_step(self, step_parameters, readonly_clients):
+        """
+
+        :param simulation_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
+        :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
+        :return:
+        """
+        for step in range(0,step_parameters['steps']):
+            if not random.randrange(0, step_parameters['chance_of_walking']):
+                self.random_walk(10)
+                logging.info(
+                    "%s: walked to %.5fN,%.5fW" % (self.name, self.current_location['lat'], self.current_location['long']))
+            # In this step we look at a provided read_only array to see who is close to ourselves,
+            # TODO-DAN this presumes we can access this across threads
+            for o in readonly_clients:
+                if o != self:  # Skip self
+                    if o.close_to(o.current_location, self.current_location, step_parameters['bluetooth_range']):
+                        self.observes(o)
+                        logging.info("%s: observed %s" % (self.name, o.name))
+            new_status = self.status
+            if self.status == STATUS_PUI:
+                if not random.randrange(0, step_parameters['chance_of_test_positive']):
+                    self.local_status_event(STATUS_INFECTED)
+                else:
+                    self.local_status_event(STATUS_HEALTHY)
+            else:
+                if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, step_parameters['chance_of_infection']):
+                    self.local_status_event(STATUS_PUI)
+                elif self.status in [STATUS_INFECTED] and not random.randrange(0, step_parameters['chance_of_recovery']):
+                    self.local_status_event(STATUS_HEALTHY)
+            self.cron_hourly()  # Will poll for any data from server
+
 
 def test_pseudoclient_2client(server, data):
     server.reset()
@@ -224,14 +268,14 @@ def test_pseudoclient_2client(server, data):
     alice.observes(bob)
     bob.observes(alice)
     logging.info("==Alice sends in a status of Infected(4) along with Bob's id and a location")
-    alice.update_status(STATUS_PUI)
+    alice.local_status_event(STATUS_PUI)
     logging.info("==Bob polls and should see Alice's notice with both ID and location")
     bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     assert len(bob.location_alerts) == 1
     assert bob.status == STATUS_UNKNOWN
     logging.info("==Alice updates her status=1 (Infected)")
-    alice.update_status(STATUS_INFECTED)
+    alice.local_status_event(STATUS_INFECTED)
     logging.info("==Bob polls and should see the updated ID and location from Alice with status=1(Infected); he'll send in his own status as PUI with his own location and ids")
     bob.cron_hourly()  # Bob polls and should get the update from alice
     assert len(bob.id_alerts) == 2
@@ -241,15 +285,20 @@ def test_pseudoclient_2client(server, data):
     bob.cron_hourly()  # Bob polls and should get the update from alice
     logging.info('Completed test_pseudoclient_work')
 
-
 def test_pseudoclient_multiclient(server, data):
-    number_of_initial_clients = 3
-    add_client_each_step = True
-    chance_of_walking = 1
-    chance_of_infection = 3  # Chance of having an infection status change event (other than through interaction with another test subject)
-    chance_of_test_positive = 2  # Chance that a PUI tests positive is 1:2
-    chance_of_recovery = 10  # Average 10 steps before recover
-    steps = 5   # Work is proportional to square of this if add_client_each_step
+    simulation_parameters = {
+        'number_of_initial_clients': 3,
+        'add_client_each_step': True,
+        'steps': 5   # Work is proportional to square of this if add_client_each_step
+    }
+    step_parameters = {
+        'chance_of_walking': 1,
+        'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
+        'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
+        'chance_of_recovery': 10,  # Average 10 steps before recover
+        'bluetooth_range': 2,
+        'steps': 1,                 # Steps each client does on own before back to this level
+    }
     clients = []
 
     def _add_client():
@@ -257,35 +306,40 @@ def test_pseudoclient_multiclient(server, data):
         c.init(data.init_req)
         clients.append(c)
 
-    logging.info("Creating %s clients" % number_of_initial_clients)
-    for i in range(number_of_initial_clients):
+    logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
+    for i in range(simulation_parameters['number_of_initial_clients']):
         _add_client()
-    for steps in range(steps):
-        logging.info("===STEP %s ====", steps)
-        if add_client_each_step:
+    for steps in range(simulation_parameters['steps']):
+        logging.info("===STEP %s ====", simulation_parameters['steps'])
+        if simulation_parameters['add_client_each_step']:
             _add_client()
         for c in clients:
-            if not random.randrange(0, chance_of_walking):
-                c.random_walk(10)
-                logging.info(
-                    "%s: walked to %.5fN,%.5fW" % (c.name, c.current_location['lat'], c.current_location['long']))
-            for o in clients:
-                if o != c:  # Skip self
-                    if o.close_to(o.current_location, c.current_location):
-                        c.observes(o)
-                        logging.info("%s: observed %s" % (c.name, o.name))
-            new_status = c.status
-            if c.status == STATUS_PUI:
-                if not random.randrange(0, chance_of_test_positive):
-                    new_status = STATUS_INFECTED
-                else:
-                    new_status = STATUS_HEALTHY
-            else:
-                if c.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, chance_of_infection):
-                    new_status = STATUS_PUI
-                elif c.status in [STATUS_INFECTED] and not random.randrange(0, chance_of_recovery):
-                    new_status = STATUS_HEALTHY
-            if new_status != c.status:
-                logging.info("%s: status change %s -> %s" % (c.name, c.status, new_status))
-                c.update_status(new_status)
-            c.cron_hourly()
+            c.simulation_step(step_parameters, clients)
+
+# Example of test jacket
+# But note this needs "server" because everything from here on down does
+# Also note can uncomment one line in __init__.py to point url at a separate server rather than the one created by pytest
+#def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
+def test_pseudoclient_work(server, data, n_clients=5, n_steps=5):
+    step_parameters = {
+        'chance_of_walking': 1,
+        'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
+        'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
+        'chance_of_recovery': 10,  # Average 10 steps before recover
+        'bluetooth_range': 2,
+        'steps': n_steps,                 # Steps each client does on own before back to this level
+    }
+    clients = []
+    for i in range(0, n_clients):
+        c = Client(server=server, data=data, name="Client-"+str(i))
+        c.init(data.init_req)
+        clients.append(c)
+    threads = []
+    for c in clients:
+        # This next line is the one we want to multithread
+        this_thread = Thread(target=c.simulation_step, args = (step_parameters, clients,))
+        threads.append(this_thread)
+        this_thread.start()
+    for t in threads:
+        t.join()
+
