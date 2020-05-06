@@ -43,7 +43,8 @@ class Client:
         self.new_id()
         self.move_to({'lat': 0, 'long': 0})
         self.length = 0
-        self.status = STATUS_HEALTHY  # Healthy
+        self.local_status = STATUS_HEALTHY # This is status based on something external to notifications, for example self-reported symptoms or a test result
+        self.status = STATUS_HEALTHY  # Status based on local_status but also any alerts from others.
         self.seed = None  # Seed on any status that might need updating
         self.since = None
 
@@ -112,13 +113,7 @@ class Client:
         for loc in self.location_alerts:
             if loc.get('update_token') in location_updatetokens:
                 loc['replaced'] = True
-
-        # New status is minimum of any statuses that haven't been replaced +1
-        # (e.g. if user is Infected (1) we will be PUI (2)
-        new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
-                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
-                         + [STATUS_HEALTHY])
-        self.update_status(new_status)  # Correctly handles case of no change
+        self._recalculate_status()
 
     # Simulate broadcasting an id
     def broadcast(self):
@@ -165,7 +160,24 @@ class Client:
         logging.info("status/update result: %s" % (str(json_data)))
         self.seed = None  # Any further status change is a new incident, there is no mechanism to re-update
 
-    # Set status - if its changed, then send current status to server (on change of status)
+    # Set status based on a local observation e.g. notification of test or contact, or self-reported symptoms.
+    def local_status_event(self, new_status):
+        logging.info("%s: local status change %s -> %s" % (self.name, self.status, new_status))
+        self.local_status = new_status
+        self._recalculate_status()
+
+    # Work out any change in status, based on the rest of the state (id_alerts, location_alerts and external_status)
+    def _recalculate_status(self):
+        # New status is minimum of any statuses that haven't been replaced +1
+        # (e.g. if user is Infected (1) we will be PUI (2)
+        new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
+                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
+                         + [self.local_status])
+        if (new_status != self.status):
+            self._notify_status(new_status)  # Correctly handles case of no change
+            self.status = new_status
+
+    # Notify status and where required any observered ids and locations to server.
     # There are only a few valid transitions
     # 1: Alice Healthy or Unknown receives notification (from #2 or #4) becomes PUI - status/send causes Bob #5
     # 2: Alice PUI tests positive (goes to Infected) - status/update pushes Bob from Unknown (because of this client's #1) to PUI (that  #1)
@@ -176,14 +188,13 @@ class Client:
     # 6: Bob receives notification (from Alice status/update #3) changes Unknown to Healthy, nothing sent
     # 8: Alice was Infected but recovers (Healthy, or another Unknown) - nothing sent
     # Infected -> PUI shouldn't happen
-    def update_status(self, new_status):
+    def _notify_status(self, new_status):
         if self.status == STATUS_PUI and new_status != self.status:  # Cases #2 or #3 above, self.seed should be set
             assert self.seed
             self._update_to(new_status)
         # This covers cases #1 and #4 (H|U -> P|I) plus any newly observed ids or visited locations while P|I
         if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
             self._send_to(new_status)
-        self.status = new_status
 
     # Action taken every 15 seconds
     def cron15(self):
@@ -235,17 +246,14 @@ class Client:
             new_status = self.status
             if self.status == STATUS_PUI:
                 if not random.randrange(0, step_parameters['chance_of_test_positive']):
-                    new_status = STATUS_INFECTED
+                    self.local_status_event(STATUS_INFECTED)
                 else:
-                    new_status = STATUS_HEALTHY
+                    self.local_status_event(STATUS_HEALTHY)
             else:
                 if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, step_parameters['chance_of_infection']):
-                    new_status = STATUS_PUI
+                    self.local_status_event(STATUS_PUI)
                 elif self.status in [STATUS_INFECTED] and not random.randrange(0, step_parameters['chance_of_recovery']):
-                    new_status = STATUS_HEALTHY
-            if new_status != self.status:
-                logging.info("%s: status change %s -> %s" % (self.name, self.status, new_status))
-                self.update_status(new_status)
+                    self.local_status_event(STATUS_HEALTHY)
             self.cron_hourly()  # Will poll for any data from server
 
 
@@ -260,14 +268,14 @@ def test_pseudoclient_2client(server, data):
     alice.observes(bob)
     bob.observes(alice)
     logging.info("==Alice sends in a status of Infected(4) along with Bob's id and a location")
-    alice.update_status(STATUS_PUI)
+    alice.local_status_event(STATUS_PUI)
     logging.info("==Bob polls and should see Alice's notice with both ID and location")
     bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     assert len(bob.location_alerts) == 1
     assert bob.status == STATUS_UNKNOWN
     logging.info("==Alice updates her status=1 (Infected)")
-    alice.update_status(STATUS_INFECTED)
+    alice.local_status_event(STATUS_INFECTED)
     logging.info("==Bob polls and should see the updated ID and location from Alice with status=1(Infected); he'll send in his own status as PUI with his own location and ids")
     bob.cron_hourly()  # Bob polls and should get the update from alice
     assert len(bob.id_alerts) == 2
@@ -311,7 +319,8 @@ def test_pseudoclient_multiclient(server, data):
 # Example of test jacket
 # But note this needs "server" because everything from here on down does
 # Also note can uncomment one line in __init__.py to point url at a separate server rather than the one created by pytest
-def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
+#def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
+def test_pseudoclient_work(server, data, n_clients=5, n_steps=5):
     step_parameters = {
         'chance_of_walking': 1,
         'chance_of_infection': 3,  # Chance of having an infection status change event (other than through interaction with another test subject)
