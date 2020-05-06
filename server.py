@@ -12,6 +12,7 @@ from twisted.python import log
 #import logging
 import json
 from contacts import Contacts
+from portal import Portal
 import configparser
 import urllib.request
 import uuid
@@ -45,6 +46,7 @@ config = get_config()
 
 contacts = Contacts(config)
 
+portal = Portal(config)
 
 # noinspection PyUnusedLocal
 def receive_signal(signal_number, frame):
@@ -101,9 +103,12 @@ if config.get('servers'):
         if server not in servers:
             servers[server] = '1970-01-01T00:00Z'
 
-allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
+contacts_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
                      '/admin/status:GET', '/init:POST']
 
+portal_methods = ['/portal/user:GET', '/portal/register:POST', '/portal/result:POST']
+
+allowable_methods = contacts_methods + portal_methods
 
 def defered_function(function):
     def _defered_function():
@@ -150,6 +155,7 @@ def defered_result_available(result, key, ret, request):
         logger.info('writing HTTP result of {ret}', ret = ret)
         request.write(json.dumps(ret).encode())
         request.finish()
+        request.finish()
     return
 
 
@@ -181,28 +187,42 @@ class Simple(resource.Resource):
         args = {k.decode(): [item for item in v] for k, v in request.args.items()}
 
         path = request.path.decode()
-        logger.info('path is {path}', path = path)
-        request.responseHeaders.addRawHeader(b"content-type", b"application/json")
-        if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
-            ret = contacts.execute_route(path, data, args)
-            if 'error' in ret:
-                request.setResponseCode(ret.get('status', 400))
-                ret = ret['error']
-                logger.info('error return is {ret}', ret = ret)
-            else:
-                # if any values functions in ret, then run then asynchronously and return None here
-                # if they aren't then return ret
+        method = request.method.decode()
+        path_method = '%s:%s' % (path, method)
+        logger.info('{method} {path}', method = method, path = path)
+        if method == "OPTIONS":
+            request.setResponseCode(204)
+            request.responseHeaders.addRawHeader(b"Allow", b"OPTIONS, GET, POST")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Methods", b"GET, POST, OPTIONS")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Origin", b"*")
+            request.responseHeaders.addRawHeader(b"Vary", b"Origin")
+            request.responseHeaders.addRawHeader(b"Connection", b"Keep-Alive")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Headers", b"Content-Type")
+            return b""
+        else:
+            request.responseHeaders.addRawHeader(b"content-type", b"application/json")
+            request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
+            if path_method in allowable_methods:
+                target = contacts if (path_method in contacts_methods) else portal
+                ret = target.execute_route(path, data, args)
+                if 'error' in ret:
+                    request.setResponseCode(ret.get('status', 400))
+                    ret = ret['error']
+                    logger.info('error return is {ret}', ret = ret)
+                else:
+                    # if any values functions in ret, then run then asynchronously and return None here
+                    # if they aren't then return ret
 
-                ret = resolve_all_functions(ret, request)
-                logger.info('legal return is {ret}', ret = ret)
-        else:
-            request.setResponseCode(402)
-            ret = {"error": "no such request"}
-            logger.info('return is {ret}', ret = ret)
-        if twserver.NOT_DONE_YET != ret:
-            return json.dumps(ret).encode()
-        else:
-            return ret
+                    ret = resolve_all_functions(ret, request)
+                    logger.info('legal return is {ret}', ret = ret)
+            else:
+                request.setResponseCode(402)
+                ret = {"error": "no such request"}
+                logger.info('return is {ret}', ret = ret)
+            if twserver.NOT_DONE_YET != ret:
+                return json.dumps(ret).encode()
+            else:
+                return ret
 
 
 def sync_body(body, remote_server):

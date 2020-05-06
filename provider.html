@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Client simulator</title>
+    <script src="./client.js" type="text/javascript"></script>
+</head>
+<body>
+<!-- TODO this could be reworked as a list -->
+<!-- TODO populate this form from call to server -->
+<form onSubmit="return providerProviderSelected()" id="provider_form">
+  <div>Note that this step needs to include authentication</div>
+  <label for="provider">Which provider are you:</label>
+  <select id="provider" name="provider">
+    <option value="kaiser_sf">Kaiser San Francisco</option>
+    <option value="bluecross_sf">Blue Cross San Francisco</option>
+  </select>
+  <input type="submit">
+</form>
+<!-- TODO display provider name and logo -->
+<!-- TODO submit data -->
+<form onSubmit="return providerTestidEntered()" id="testid_form">
+    <label for="testid">Enter the test number?</label>
+    <input id="testid" type="text"/>
+    <input type="radio" name="status" value="1"> Infected
+    <input type="radio" name="status" value="4"> Healthy
+    <input type="submit" value="Submit">
+</form>
+<!-- TODO check result is found -->
+<div id="results">
+    Data submitted
+</div>
+
+<script language="JavaScript">
+    providerSetVisible();
+</script>
+</body>
+</html>

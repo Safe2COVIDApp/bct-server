@@ -10,10 +10,10 @@ import datetime
 logger = logging.getLogger(__name__)
 
 
-# The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
+# The hash_seed and verify_nonce functions are a pair that may be changed as the function changes.
 # verify(seed, hashupdates(seed)) == true;
 
-def hash_nonce(seed):
+def hash_seed(seed):
     return hashlib.sha1(seed.encode()).hexdigest()
 
 
@@ -29,7 +29,7 @@ def random_ascii(length):
 def new_seed(seed_string=None):
     if not seed_string:
         seed_string = random_ascii(8)
-    return hash_nonce(seed_string)  # first hash_nonce is to get size same as updates
+    return hash_seed(seed_string)  # first hash_seed is to get size same as updates
 
 
 # This group of functions centralize the process and cryptography for seed -> replacement_token -> update_token
@@ -37,14 +37,14 @@ def new_seed(seed_string=None):
 # Generate Replacement token from seed + n (which should increment)
 # Requirements - none reversible, cannot be used to find the seed, or any other replacement_token
 def replacement_token(seed, n):
-    return hash_nonce(seed + str(n))
+    return hash_seed(seed + str(n))
 
 
 # Generate Update Token from Replacement Token
 # Requirements: Not reversible, confirmable
 # i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
 def update_token(rt):
-    return fold_hash(hash_nonce(rt))
+    return fold_hash(hash_seed(rt))
 
 
 # Check that the rt is a correct rt for the ut.
@@ -52,11 +52,13 @@ def confirm_update_token(ut, rt):
     return update_token(rt) == ut
 
 
-# current_time is a variable that CAN be set in testing mode (useful in testing so we remove randomness and allow tests
+# override_time_for_testing is a variable that CAN be set in testing mode (useful in testing so we remove randomness and allow tests
 # without sleeping)
 override_time_for_testing = False
 
 
+# Return time in floating seconds,
+# Can be overridden, but strange that it goes through a global variable ! )
 def current_time():
     if override_time_for_testing:
         # TODO-DAN I commented out the next line - doesn't make sense to me with no parameters.
