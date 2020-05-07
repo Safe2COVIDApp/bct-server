@@ -181,28 +181,41 @@ class Simple(resource.Resource):
         args = {k.decode(): [item for item in v] for k, v in request.args.items()}
 
         path = request.path.decode()
-        logger.info('path is {path}', path = path)
-        request.responseHeaders.addRawHeader(b"content-type", b"application/json")
-        if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
-            ret = contacts.execute_route(path, data, args)
-            if 'error' in ret:
-                request.setResponseCode(ret.get('status', 400))
-                ret = ret['error']
-                logger.info('error return is {ret}', ret = ret)
-            else:
-                # if any values functions in ret, then run then asynchronously and return None here
-                # if they aren't then return ret
+        method = request.method.decode()
+        path_method = '%s:%s' % (path, method)
+        logger.info('{method} {path}', method = method, path = path)
+        if method == "OPTIONS":
+            request.setResponseCode(204)
+            request.responseHeaders.addRawHeader(b"Allow", b"OPTIONS, GET, POST")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Methods", b"GET, POST, OPTIONS")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Origin", b"*")
+            request.responseHeaders.addRawHeader(b"Vary", b"Origin")
+            request.responseHeaders.addRawHeader(b"Connection", b"Keep-Alive")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Headers", b"Content-Type")
+            return b""
+        else:
+            request.responseHeaders.addRawHeader(b"content-type", b"application/json")
+            request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
+            if path_method in allowable_methods:
+                ret = contacts.execute_route(path, data, args)
+                if 'error' in ret:
+                    request.setResponseCode(ret.get('status', 400))
+                    ret = ret['error']
+                    logger.info('error return is {ret}', ret = ret)
+                else:
+                    # if any values functions in ret, then run then asynchronously and return None here
+                    # if they aren't then return ret
 
-                ret = resolve_all_functions(ret, request)
-                logger.info('legal return is {ret}', ret = ret)
-        else:
-            request.setResponseCode(402)
-            ret = {"error": "no such request"}
-            logger.info('return is {ret}', ret = ret)
-        if twserver.NOT_DONE_YET != ret:
-            return json.dumps(ret).encode()
-        else:
-            return ret
+                    ret = resolve_all_functions(ret, request)
+                    logger.info('legal return is {ret}', ret = ret)
+            else:
+                request.setResponseCode(402)
+                ret = {"error": "no such request"}
+                logger.info('return is {ret}', ret = ret)
+            if twserver.NOT_DONE_YET != ret:
+                return json.dumps(ret).encode()
+            else:
+                return ret
 
 
 def sync_body(body, remote_server):

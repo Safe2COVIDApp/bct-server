@@ -186,13 +186,13 @@ class FSBackedThreeLevelDict:
         chunks, dir_name = self.get_directory_name_and_chunks(key_string)
         return "%s/%s" % (dir_name, file_name)
 
-    def update(self, updating_token, updates, now):
+    def update(self, updating_token, updates, floating_seconds):
         """
         Look for an entry matching updating_token, add a new one after modifying with updates
 
         :param updating_token: folded hash 16 character string
         :param updates:      { update_token, replaces, status }
-        :param now:          unix time
+        :param floating_seconds:          unix time
         :return:             True if succeeded
         """
         file_name = self.update_index.get(updating_token)
@@ -200,7 +200,7 @@ class FSBackedThreeLevelDict:
             file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(self.directory + '/' + file_path))
             blob.update(updates)
-            self.insert(blob, now)
+            self.insert(blob, floating_seconds)
             return True
         else:
             return False
