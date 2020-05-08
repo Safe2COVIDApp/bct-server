@@ -27,7 +27,7 @@ To install:
 * apt install libspatialindex-dev (ubuntu)
 
 # Running on Docker
-* docker run --rm -p 5000:5000 danaronson/safe2server:1.1
+* docker run --rm -p 5000:5000 danaronson/safe2server:latest
 
 Either run the Dockerfile from this repo, or run from the docker repository once its installed there.
 
