@@ -1,4 +1,4 @@
-[![CircleCI](https://circleci.com/gh/mitra42/bct-server.svg?style=svg)](https://circleci.com/gh/mitra42/bct-server)
+[![CircleCI](https://circleci.com/gh/Safe2COVIDApp/bct-server.svg?style=svg)](https://circleci.com/gh/Safe2COVIDApp/bct-server)
 
 	
 # bct-server
@@ -27,7 +27,7 @@ To install:
 * apt install libspatialindex-dev (ubuntu)
 
 # Running on Docker
-TODO-DAN install on docker repository
+* docker run --rm -p 5000:5000 danaronson/safe2server:1.1
 
 Either run the Dockerfile from this repo, or run from the docker repository once its installed there.
 
