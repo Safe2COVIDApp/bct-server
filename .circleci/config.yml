@@ -1,0 +1,27 @@
+version: 2.1
+
+orbs:
+  python: circleci/python@0.2.1
+  slack: circleci/slack@3.4.2
+
+jobs:
+  build-and-test:
+    executor: python/default
+    steps:
+      - checkout
+      - python/load-cache
+      - run: sudo apt-get install libspatialindex-dev
+      - python/install-deps
+      - run: pip install pytest
+      - python/save-cache
+      - run:
+          command: python -m pytest tests
+          name: Test
+      - slack/status:
+          success_message: ":tada: A $CIRCLE_JOB job on $CIRCLE_BRANCH has succeeded!"
+          failure_message: ":red_circle: A $CIRCLE_JOB job on $CIRCLE_BRANCH has failed!"
+
+workflows:
+  main:
+    jobs:
+      - build-and-test
