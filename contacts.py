@@ -472,6 +472,11 @@ class Contacts:
         ret['until'] = iso_time_from_seconds_since_epoch(now)
         return ret
 
+    # status/result POST
+    @register_method(route='/status/result')
+    def status_result(self, data, args):
+        pass
+    
     # sync get
     @register_method(route='/sync')
     def sync(self, data, args):
