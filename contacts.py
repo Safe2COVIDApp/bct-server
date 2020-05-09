@@ -387,7 +387,8 @@ def register_method(_func=None, *, route):
 
 class Contacts:
 
-    def __init__(self, config):
+    def __init__(self, config_top):
+        config = config_top['DEFAULT']
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
@@ -396,7 +397,7 @@ class Contacts:
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = {}
-        self.config = config  # used in init
+        #self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
         self.statistics = {}
         for k in init_statistics_fields:
             self.statistics[k] = 0
@@ -576,7 +577,7 @@ class Contacts:
             self.statistics[k] += 1
         # TODO-83
         app_name = data.get('application_name')
-        app_current_version = self.config.getfloat('APP_' + app_name)
+        #app_current_version = self.config_apps.getfloat(app_name + "_VERSION")
         ret = {
             # "messaging_url": "", "messaging_version": 1, # TODO-84 - delayed till clients capable
             "bounding_box_minimum_dp": self.bb_min_dp,
@@ -584,8 +585,8 @@ class Contacts:
             "location_resolution": self.location_resolution,  # ~10 meters at the equator
             "prefix_bits": 20,  # TODO-34 will need to calculate this
         }
-        if app_current_version:
-            ret["application_current_version"] = app_current_version  # TODO-83
+        #if app_current_version:
+        #    ret["application_current_version"] = app_current_version  # TODO-83
         return ret
 
     # reset should only be called and allowed if testing
