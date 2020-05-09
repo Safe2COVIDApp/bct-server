@@ -284,6 +284,8 @@ class FSBackedThreeLevelDict:
 
 
 # TODO-DAN it complains class ContactDict must implement all abstract methods
+# MITRA -- what is 'it'?
+
 class ContactDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
@@ -470,7 +472,6 @@ class Contacts:
     @register_method(route='/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
-        # floating_seconds = current_time() # use separate time for each point
 
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
@@ -491,8 +492,8 @@ class Contacts:
         return {"status": "ok"}
 
     def _update(self, updatetoken, updates, floating_time, serial_number):
-        return any(this_dict.update(updatetoken, updates, floating_time, serial_number) for this_dict in
-                   [self.contact_dict, self.spatial_dict])
+        for this_dict in self.map_over_dicts():
+            yield this_dict.update(updatetoken, updates, floating_time, serial_number) 
 
     # status_update POST
     # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], memo, replaces, status, ... ]
