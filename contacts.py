@@ -30,8 +30,6 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
                           'language', 'status']
 
 
-import pdb
-
 class FSBackedThreeLevelDict:
 
     @staticmethod
@@ -231,7 +229,6 @@ class FSBackedThreeLevelDict:
         """
 
 
-        #pdb.set_trace()
         deletion_list = list(self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):
                                                                              self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))])
         for item in deletion_list:
