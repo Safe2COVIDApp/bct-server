@@ -30,6 +30,8 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
                           'language', 'status']
 
 
+import pdb
+
 class FSBackedThreeLevelDict:
 
     @staticmethod
@@ -40,34 +42,44 @@ class FSBackedThreeLevelDict:
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
         self.update_index = {}
-        self.sorted_list_by_time = sortedlist()
-        self.time_to_file_path_map = {}
+        self.sorted_list_by_time_and_serial_number = sortedlist(key =lambda key: key[0])
+        self.time_and_serial_number_to_file_path_map = {}
         self.directory = directory
+        os.makedirs(directory, 0o770, exist_ok=True)
         self._load()
+        # file paths that are pending deletion
+        self.file_paths_to_delete = []
         return
 
     def _get_parts_from_filename(self, file_name):
         simple_file_name = file_name.replace('.data', '')
-        (code, floating_seconds_str) = simple_file_name.split(':')
-        floating_seconds = float(floating_seconds_str)
-        return code, floating_seconds
+        parts = simple_file_name.split(':')
+        code = parts[0]
+        floating_seconds = float(parts[1])
+        if 2 == len(parts):
+            # -1 means that it is an old style file name
+            serial_number = None
+        else:
+            serial_number = int(parts[2])
+        return code, floating_seconds, serial_number
 
     def _load(self):
         for root, sub_dirs, files in os.walk(self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    (code, floating_seconds) = self._get_parts_from_filename(file_name)
+                    (code, floating_seconds, serial_number) = self._get_parts_from_filename(file_name)
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
-                    self.sorted_list_by_time.add(floating_seconds)
+                    self.sorted_list_by_time_and_serial_number.add((floating_seconds, serial_number))
                     relative_file_path = '/'.join([dirs[0], dirs[1], dirs[2], file_name])
-                    self.time_to_file_path_map[floating_seconds] = relative_file_path
-                    floating_seconds_list = [floating_seconds]
+                    floating_seconds_and_serial_number = (floating_seconds, serial_number)
+                    self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = relative_file_path
+                    floating_seconds_and_serial_number_list = [floating_seconds_and_serial_number]
                     if code in contact_dates:
-                        floating_seconds_list = contact_dates[code]
-                        floating_seconds_list.append(floating_seconds)
+                        floating_seconds_and_serial_number_list = contact_dates[code]
+                        floating_seconds_and_serial_number_list.append(floating_seconds_and_serial_number)
                     self.item_count += 1
-                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_list
+                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_and_serial_number_list
 
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
@@ -131,7 +143,7 @@ class FSBackedThreeLevelDict:
         chunks = [key[i:i + 2] for i in [0, 2, 4]]
         return chunks, "/".join(chunks)
 
-    def insert(self, value, floating_seconds):
+    def insert(self, value, floating_seconds, serial_number):
         """
         Insert value object at key with date, keep various indexes to it (update_index)
 
@@ -140,6 +152,7 @@ class FSBackedThreeLevelDict:
         key -- String || Object Either the contact id, or tuple or lat/long
         value -- Dict object needing storing
         floating_seconds -- unix time
+        serial_number -- int 
         """
         key = self._key_string_from_blob(value)
         # we are NOT going to read multiple things from the file system for performance reasons
@@ -151,22 +164,23 @@ class FSBackedThreeLevelDict:
         key = key.upper()
 
         chunks, dir_name = self.get_directory_name_and_chunks(key)
+        floating_seconds_and_serial_number = (floating_seconds, serial_number)
 
-        # first put this floating_seconds into the item list
+        # first put this floating_seconds_and_serial_number into the item list
         # TODO-DAN code inspector suggests should be using isinstance()
         if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
-            self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds]
+            self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds_and_serial_number]
         else:
-            self.items[chunks[0]][chunks[1]][chunks[2]][key].append(floating_seconds)
+            self.items[chunks[0]][chunks[1]][chunks[2]][key].append(floating_seconds_and_serial_number)
 
         os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
-        file_name = '%s:%f.data' % (key, floating_seconds)
+        file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
         file_path = '%s/%s' % (dir_name, file_name)
         logger.info('writing {value} to {directory}', value = value, directory = self.directory + '/' + file_path)
         with open(self.directory + '/' + file_path, 'w') as file:
             json.dump(value, file)
-        self.sorted_list_by_time.add(floating_seconds)
-        self.time_to_file_path_map[floating_seconds] = file_path
+        self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
+        self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = file_path
         self._insert_disk(key)
         self.item_count += 1
         ut = value.get('update_token')
@@ -185,23 +199,13 @@ class FSBackedThreeLevelDict:
             yield json.load(open(self.directory + '/' + file_path))
         return
 
-    def delete_from_file_paths(self, file_paths):
-        for file_path in file_paths:
-            self.delete(file_path)
-        return
 
-    def delete(self, file_path):
+    def _delete(self, file_path):
         logger.info("deleting {file_path}", file_path = file_path)
-        file_name = file_path.split('/')[-1]
-        (key, floating_seconds) = self._get_parts_from_filename(file_name)
+
         blob = json.load(open(self.directory + '/' + file_path))
         chunks, dir_name = self.get_directory_name_and_chunks(key)
-        # Remove from items
-        self.items[chunks[0]][chunks[1]][chunks[2]][key] = [
-            t for t in self.items[chunks[0]][chunks[1]][chunks[2]][key] if t != floating_seconds ]
-        del self.sorted_list_by_time[self.sorted_list_by_time.index(floating_seconds)]
-        del self.time_to_file_path_map[floating_seconds]
-        self.item_count -= 1
+
         updatetoken = blob.get('update_token')
         if updatetoken:
             del self.update_index[updatetoken]
@@ -209,31 +213,66 @@ class FSBackedThreeLevelDict:
         os.remove(self.directory + "/" + file_path)
         return
 
-    def get_file_paths_between_times(self, since, now):
+    def delete_from_deletion_list(self):
+        logger.info('there are {count} items to delete', count = len(self.file_paths_to_delete))
+        while 0 != len(self.file_paths_to_delete):
+            file_path = self.file_paths_to_delete.pop()
+            self._delete(file_path)
+        return
+
+    def move_expired_data_to_deletion_list(self, since, until):
+        """ 
+        take old data and move it to the deletion list, but don't do the deletion 
+
+        Parameters
+        ----------
+        since -- unix time 
+        until -- unix time
+        """
+
+
+        #pdb.set_trace()
+        deletion_list = list(self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):
+                                                                             self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))])
+        for item in deletion_list:
+            self.sorted_list_by_time_and_serial_number.remove(item)
+            file_path = self.time_and_serial_number_to_file_path_map[item]
+            logger.info("moving {file_path} to deletion list", file_path = file_path)
+            file_name = file_path.split('/')[-1]
+            (key, floating_seconds, serial_number) = self._get_parts_from_filename(file_name)
+            chunks, dir_name = self.get_directory_name_and_chunks(key)
+            self.items[chunks[0]][chunks[1]][chunks[2]][key].remove(item)
+            self.file_paths_to_delete.append(this_file_path)
+            del self.time_and_serial_number_to_file_path_map[item]
+            self.item_count -= 1
+        return
+
+    def get_file_paths_between_times(self, since, until):
         """
         get_file_paths_between_times returns a list of file_paths to retrieve and the last time that an entry was made
         """
         times_to_retrieve = list(
-            self.sorted_list_by_time[self.sorted_list_by_time.bisect(since):self.sorted_list_by_time.bisect(now - 1)])
+            self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))])
         if 0 != len(times_to_retrieve):
-            ret = [self.time_to_file_path_map[floating_time] for floating_time in times_to_retrieve], \
-                  times_to_retrieve[-1]
-            return ret
+            last_time = times_to_retrieve[-1][0]
         else:
-            return [], 0
+            last_time = 0
+        ret = [self.time_and_serial_number_to_file_path_map[time_and_serial_number] for time_and_serial_number  in times_to_retrieve]
+        return ret, last_time
 
     def get_file_path_from_file_name(self, file_name):
-        (key_string, date_and_extension) = file_name.split(':')
-        chunks, dir_name = self.get_directory_name_and_chunks(key_string)
+        components = file_name.split(':')
+        chunks, dir_name = self.get_directory_name_and_chunks(components[0])
         return "%s/%s" % (dir_name, file_name)
 
-    def update(self, updating_token, updates, now):
+    def update(self, updating_token, updates, now, serial_number):
         """
         Look for an entry matching updating_token, add a new one after modifying with updates
 
         :param updating_token: folded hash 16 character string
         :param updates:      { update_token, replaces, status }
         :param now:          unix time
+        :param serial_number int
         :return:             True if succeeded
         """
         file_name = self.update_index.get(updating_token)
@@ -241,7 +280,7 @@ class FSBackedThreeLevelDict:
             file_path = self.get_file_path_from_file_name(file_name)
             blob = json.load(open(self.directory + '/' + file_path))
             blob.update(updates)
-            self.insert(blob, now)
+            self.insert(blob, now, serial_number)
             return True
         else:
             return False
@@ -252,7 +291,6 @@ class ContactDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
         directory = directory + '/contact_dict'
-        os.makedirs(directory, 0o770, exist_ok=True)
         super().__init__(directory)
 
     def _insert_disk(self, key):
@@ -279,9 +317,14 @@ class ContactDict(FSBackedThreeLevelDict):
                         yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
         else:
             for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
-                for floating_time in ids[contact_id]:
+                for (floating_time, serial_number) in ids[contact_id]:
                     if _good_date(floating_time, since, now):
-                        yield self.get_file_path_from_file_name('%s:%f.data' % (contact_id, floating_time))
+                        if None == serial_number:
+                            # no serial number
+                            file_name = '%s:%f.data' % (contact_id, floating_time)
+                        else:
+                            file_name = '%s:%f:%d.data' % (contact_id, floating_time, serial_number)
+                        yield self.get_file_path_from_file_name(file_name)
         return
 
     def map_over_matching_data(self, key, since, now):
@@ -295,7 +338,6 @@ class ContactDict(FSBackedThreeLevelDict):
 class SpatialDict(FSBackedThreeLevelDict):
     def __init__(self, directory):
         directory = directory + '/spatial_dict'
-        os.makedirs(directory, 0o770, exist_ok=True)
         self.spatial_index = rtree.index.Index()
         self.keys = {}  # Maps key_tuple to key_QQ1
         self.coords = {}  # Maps key_QQ1 to key_tuple
@@ -344,9 +386,14 @@ class SpatialDict(FSBackedThreeLevelDict):
     def map_over_matching_data(self, key, since, now):
         for obj in self.spatial_index.intersection(key, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
             chunks, dir_name = self.get_directory_name_and_chunks(obj.object)
-            for floating_time in self.items[chunks[0]][chunks[1]][chunks[2]][obj.object]:
+            for (floating_time, serial_number) in self.items[chunks[0]][chunks[1]][chunks[2]][obj.object]:
                 if _good_date(floating_time, since, now):
-                    yield self.get_file_path_from_file_name('%s:%f.data' % (obj.object, floating_time))
+                    if None == serial_number:
+                        # no serial number
+                        file_name = '%s:%f.data' % (obj.object, floating_time)
+                    else:
+                        file_name = '%s:%f:%d.data' % (obj.object, floating_time, serial_number)
+                    yield self.get_file_path_from_file_name(file_name)
         return
 
     def _key_string_from_blob(self, blob):
@@ -389,6 +436,7 @@ class Contacts:
 
     def __init__(self, config_top):
         config = config_top['DEFAULT']
+        self.config = config
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
         self.spatial_dict = SpatialDict(self.directory_root)
@@ -409,13 +457,13 @@ class Contacts:
     def close(self):
         return
 
-    def _insert_blob_with_optional_replacement(self, table, blob, floating_seconds):
-        table.insert(blob, floating_seconds)
+    def _insert_blob_with_optional_replacement(self, table, blob, floating_seconds, serial_number):
+        table.insert(blob, floating_seconds, serial_number)
         ut = blob.get('update_token')
         if ut and ut in self.unused_update_tokens:
             blob_copy = copy.deepcopy(blob)  # Do not trust the insert to make a copy
             blob_copy.update(self.unused_update_tokens[ut])
-            table.insert(blob_copy, floating_seconds)
+            table.insert(blob_copy, floating_seconds, serial_number + 1)
             del self.unused_update_tokens[ut]
 
     # send_status POST
@@ -430,19 +478,23 @@ class Contacts:
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
         # first process contacts, then process geocode
+        floating_seconds = current_time()
+        serial_number = 0
         repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
-        for contact in data.get('contacts_id', []):
+        for contact in data.get('contact_ids', []):
             contact.update(repeated_fields)
-            floating_seconds = current_time()
-            self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
+            self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds, serial_number)
+            # increase by two each time to deal with potential second insert
+            serial_number += 2
         for location in data.get('locations', []):
             location.update(repeated_fields)
-            floating_seconds = current_time()
-            self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds)
+            self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds, serial_number)
+            # increase by two each time to deal with potential second insert
+            serial_number += 2
         return {"status": "ok"}
 
-    def _update(self, updatetoken, updates, floating_time):
-        return any(this_dict.update(updatetoken, updates, floating_time) for this_dict in
+    def _update(self, updatetoken, updates, floating_time, serial_number):
+        return any(this_dict.update(updatetoken, updates, floating_time, serial_number) for this_dict in
                    [self.contact_dict, self.spatial_dict])
 
     # status_update POST
@@ -452,6 +504,8 @@ class Contacts:
         logger.info('in status_update')
         # floating_seconds = current_time()
         length = data.get('length')  # This is how many to replace
+        floating_seconds = current_time()
+        serial_number = 0
         if length:
             updatetokens = data.get('update_tokens', [])
             for i in range(length):
@@ -464,9 +518,9 @@ class Contacts:
                 }  # SEE-OTHER-ADD-FIELDS
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
-                floating_seconds = current_time()
-                if not self._update(ut, updates, floating_seconds):
+                if not self._update(ut, updates, floating_seconds, serial_number):
                     self.unused_update_tokens[ut] = updates
+                serial_number += 1
         return {"status": "ok"}
 
     # scan_status post
@@ -543,7 +597,7 @@ class Contacts:
             def get_contact_id_data():
                 return list(self.contact_dict.retrieve_json_from_file_paths(contacts))
 
-            ret['contacts_id'] = get_contact_id_data
+            ret['contact_ids'] = get_contact_id_data
         if 0 != len(locations):
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(locations))
@@ -608,11 +662,20 @@ class Contacts:
                 return False
         return True
 
-    def delete_expired_data(self):
-        since = current_time() - self.config.getint('expire_data', 45) * 24 * 60 * 60
-        contacts, latest_contact_time = self.contact_dict.get_file_paths_between_times(0, since)
-        locations, latest_location_time = self.spatial_dict.get_file_paths_between_times(0, since)
-        self.contact_dict.delete_from_file_paths(contacts)
-        self.spatial_dict.delete_from_file_paths(locations)
+    def map_over_dicts(self):
+        for the_dict in [self.contact_dict, self.spatial_dict]:
+            yield the_dict
+        return
+                         
+
+    def move_expired_data_to_deletion_list(self):
+        until = current_time() - self.config.getint('expire_data', 45) * 24 * 60 * 60
+        for the_dict in self.map_over_dicts():
+            the_dict.move_expired_data_to_deletion_list(0, until)
         return
 
+    def delete_from_deletion_list(self):
+        for the_dict in self.map_over_dicts():
+            the_dict.delete_from_deletion_list()
+        return
+        

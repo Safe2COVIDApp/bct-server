@@ -56,18 +56,12 @@ def confirm_update_token(ut, rt):
 # without sleeping)
 override_time_for_testing = False
 
-last_current_time = 0;
 def current_time():
     global override_time_for_testing
-    global last_current_time
     if override_time_for_testing:
         return override_time_for_testing
     else:
-        t = time.time()
-        if t <= last_current_time + 0.00001:
-            t = t+0.00001
-        last_current_time = t
-        return t
+        return time.time()
 
 
 
