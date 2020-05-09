@@ -46,15 +46,19 @@ class FSBackedThreeLevelDict:
         self._load()
         return
 
+    def _get_parts_from_filename(self, file_name):
+        simple_file_name = file_name.replace('.data', '')
+        (code, floating_seconds_str) = simple_file_name.split(':')
+        floating_seconds = float(floating_seconds_str)
+        return code, floating_seconds
+
     def _load(self):
         for root, sub_dirs, files in os.walk(self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    simple_file_name = file_name.replace('.data', '')
-                    (code, floating_seconds) = simple_file_name.split(':')
+                    (code, floating_seconds) = self._get_parts_from_filename(file_name)
                     dirs = root.split('/')[-3:]
                     contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
-                    floating_seconds = float(floating_seconds)
                     self.sorted_list_by_time.add(floating_seconds)
                     relative_file_path = '/'.join([dirs[0], dirs[1], dirs[2], file_name])
                     self.time_to_file_path_map[floating_seconds] = relative_file_path
@@ -381,7 +385,7 @@ class Contacts:
     @register_method(route='/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
-        floating_seconds = current_time()
+        # floating_seconds = current_time() # use separate time for each point
 
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
@@ -389,9 +393,11 @@ class Contacts:
         repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
         for contact in data.get('contacts_id', []):
             contact.update(repeated_fields)
+            floating_seconds = current_time()
             self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
         for location in data.get('locations', []):
             location.update(repeated_fields)
+            floating_seconds = current_time()
             self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds)
         return {"status": "ok"}
 
@@ -404,7 +410,7 @@ class Contacts:
     @register_method(route='/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
-        now = current_time()
+        # floating_seconds = current_time()
         length = data.get('length')  # This is how many to replace
         if length:
             updatetokens = data.get('update_tokens', [])
@@ -418,7 +424,8 @@ class Contacts:
                 }  # SEE-OTHER-ADD-FIELDS
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
-                if not self._update(ut, updates, now):
+                floating_seconds = current_time()
+                if not self._update(ut, updates, floating_seconds):
                     self.unused_update_tokens[ut] = updates
         return {"status": "ok"}
 
