@@ -166,7 +166,7 @@ def run_server(server_urls=None, port=None):
             tmp_dir_name, port, log_file_path)
         if server_urls:
             config_data += 'SERVERS = %s\nNEIGHBOR_SYNC_PERIOD = 1\n' % server_urls
-        config_data += '[APPS]\nTESTING_VERSION = 2.0\n'
+        # config_data += '[APPS]\nTESTING_VERSION = 2.0\n'
         open(config_file_path, 'w').write(config_data)
         with Popen([python, 'server.py', '--config_file', config_file_path]) as proc:
             logger.info('waiting for server to startup')
