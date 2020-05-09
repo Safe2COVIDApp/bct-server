@@ -91,6 +91,19 @@ class FSBackedThreeLevelDict:
         """
         return
 
+    def _remove_key(self, key, blob):
+        """
+        _remove_key can be subclassed to remove association of a key with data stored at that key
+
+        Parameters:
+        ----------
+        key -- String
+               Index into the FS and dictionary
+        blob -- Dict
+                Data associated with Key
+        """
+        return
+
     def _make_key(self, key):
         """ 
         _make_key is defined in the subclass and returns a unique string
@@ -170,6 +183,30 @@ class FSBackedThreeLevelDict:
     def retrieve_json_from_file_paths(self, file_paths):
         for file_path in file_paths:
             yield json.load(open(self.directory + '/' + file_path))
+        return
+
+    def delete_from_file_paths(self, file_paths):
+        for file_path in file_paths:
+            self.delete(file_path)
+        return
+
+    def delete(self, file_path):
+        logger.info("deleting {file_path}", file_path = file_path)
+        file_name = file_path.split('/')[-1]
+        (key, floating_seconds) = self._get_parts_from_filename(file_name)
+        blob = json.load(open(self.directory + '/' + file_path))
+        chunks, dir_name = self.get_directory_name_and_chunks(key)
+        # Remove from items
+        self.items[chunks[0]][chunks[1]][chunks[2]][key] = [
+            t for t in self.items[chunks[0]][chunks[1]][chunks[2]][key] if t != floating_seconds ]
+        del self.sorted_list_by_time[self.sorted_list_by_time.index(floating_seconds)]
+        del self.time_to_file_path_map[floating_seconds]
+        self.item_count -= 1
+        updatetoken = blob.get('update_token')
+        if updatetoken:
+            del self.update_index[updatetoken]
+        self._remove_key(key, blob)
+        os.remove(self.directory + "/" + file_path)
         return
 
     def get_file_paths_between_times(self, since, now):
@@ -273,6 +310,8 @@ class SpatialDict(FSBackedThreeLevelDict):
         self.keys[key_tuple] = key_string
         self.coords[key_string] = key_tuple
         return
+
+    # _remove_key is unneccessary, there might be other data at this point, and doesnt hurt to leave extra points in place
 
     def _make_key(self, key_tuple):
         """
@@ -567,3 +606,12 @@ class Contacts:
                     bb.get('max_lat') - bb.get('min_lat'))) > self.bb_max_size:
                 return False
         return True
+
+    def delete_expired_data(self):
+        since = current_time() - self.config.getint('expire_data', 45) * 24 * 60 * 60
+        contacts, latest_contact_time = self.contact_dict.get_file_paths_between_times(0, since)
+        locations, latest_location_time = self.spatial_dict.get_file_paths_between_times(0, since)
+        self.contact_dict.delete_from_file_paths(contacts)
+        self.spatial_dict.delete_from_file_paths(locations)
+        return
+

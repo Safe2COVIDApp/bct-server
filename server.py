@@ -18,7 +18,7 @@ import uuid
 import signal
 import atexit
 import sys
-from lib import set_current_time_for_testing
+from lib import set_current_time_for_testing, iso_time_from_seconds_since_epoch, current_time
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -247,10 +247,18 @@ def get_data_from_neighbors():
         request.addErrback(sync_error)
     return
 
+def delete_expired_data():
+    logger.info("Expiring data")
+    contacts.delete_expired_data()
+    return
 
 if 0 != len(servers):
-    l = task.LoopingCall(get_data_from_neighbors)
-    l.start(int(config.get('neighbor_sync_period', 600.0)))
+    l1 = task.LoopingCall(get_data_from_neighbors)
+    # TODO-DAN Shouldnt this be getfloat ?
+    l1.start(int(config.get('neighbor_sync_period', 600.0)))
+
+l2 = task.LoopingCall(delete_expired_data)
+l2.start(24*60*60)
 
 site = twserver.Site(Simple())
 reactor.listenTCP(int(config.get('port', 8080)), site)
