@@ -206,9 +206,15 @@ class Simple(resource.Resource):
 
 
 def sync_body(body, remote_server):
+    server_name = remote_server # TODO-119 TODO-67 this will be replaced with a certified name once certificates implemented
     data = json.loads(body)
     logger.info('Response body in sync: {data}, calling send status', data = data)
     json_data = json.loads(body)
+    for o in json_data.get('contact_ids', []) + json_data.get('locations', []):
+        pass
+        #if not o.get('path'):
+        #    o['path'] = []
+        #o['path'].append(server_name)
     contacts._send_or_sync(json_data, {})
     servers[remote_server] = data['until']
     json.dump(servers, open(servers_file_path, 'w'))
