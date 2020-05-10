@@ -208,7 +208,8 @@ class Simple(resource.Resource):
 def sync_body(body, remote_server):
     data = json.loads(body)
     logger.info('Response body in sync: {data}, calling send status', data = data)
-    contacts.send_status(json.loads(body), None)
+    json_data = json.loads(body)
+    contacts._send_or_sync(json_data, {})
     servers[remote_server] = data['until']
     json.dump(servers, open(servers_file_path, 'w'))
     return

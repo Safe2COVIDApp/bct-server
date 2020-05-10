@@ -382,12 +382,16 @@ class Contacts:
     @register_method(route='/status/send')
     def send_status(self, data, args):
         logger.info('in send_status')
+        repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
+        return self._send_or_sync(data, repeated_fields)
+
+    # Common part of both /status/send and
+    def _send_or_sync(self, data, repeated_fields):
         floating_seconds = current_time()
 
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
         # first process contacts, then process geocode
-        repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
         for contact in data.get('contact_ids', []):
             contact.update(repeated_fields)
             self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
