@@ -26,15 +26,15 @@ def test_sync():
             resp_1_2 = server_1.sync()
             resp_2_2 = server_2.sync()
     assert resp_1_1.status_code == 200
-    assert 'contacts_id' not in resp_1_1.json()
+    assert 'contact_ids' not in resp_1_1.json()
 
     assert resp_2_1.status_code == 200
-    assert 'contacts_id' not in resp_2_1.json()
+    assert 'contact_ids' not in resp_2_1.json()
 
     all_contacts = sort_list_of_dictionaries(json_data_1 + json_data_2)
-    assert 'contacts_id' in resp_1_2.json()
-    assert sort_list_of_dictionaries(resp_1_2.json()['contacts_id']) == all_contacts
+    assert 'contact_ids' in resp_1_2.json()
+    assert sort_list_of_dictionaries(resp_1_2.json()['contact_ids']) == all_contacts
 
-    assert 'contacts_id' in resp_2_2.json()
-    assert sort_list_of_dictionaries(resp_2_2.json()['contacts_id']) == all_contacts
+    assert 'contact_ids' in resp_2_2.json()
+    assert sort_list_of_dictionaries(resp_2_2.json()['contact_ids']) == all_contacts
     return

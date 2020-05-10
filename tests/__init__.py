@@ -42,7 +42,7 @@ class Server:
                 update_token(replacement_token(seed, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
-            data['contacts_id'] = contacts
+            data['contact_ids'] = contacts
         if locations:
             data['locations'] = locations
         headers = {}

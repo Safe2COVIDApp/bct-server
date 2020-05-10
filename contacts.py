@@ -388,7 +388,7 @@ class Contacts:
         # Note memo is not supported yet and is a placeholder
         # first process contacts, then process geocode
         repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
-        for contact in data.get('contacts_id', []):
+        for contact in data.get('contact_ids', []):
             contact.update(repeated_fields)
             self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds)
         for location in data.get('locations', []):
@@ -497,7 +497,7 @@ class Contacts:
             def get_contact_id_data():
                 return list(self.contact_dict.retrieve_json_from_file_paths(contacts))
 
-            ret['contacts_id'] = get_contact_id_data
+            ret['contact_ids'] = get_contact_id_data
         if 0 != len(locations):
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(locations))
