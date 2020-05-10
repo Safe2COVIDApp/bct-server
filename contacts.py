@@ -493,7 +493,7 @@ class Contacts:
 
     def _update(self, updatetoken, updates, floating_time, serial_number):
         for this_dict in self.map_over_dicts():
-            yield this_dict.update(updatetoken, updates, floating_time, serial_number) 
+            this_dict.update(updatetoken, updates, floating_time, serial_number) 
 
     # status_update POST
     # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], memo, replaces, status, ... ]
