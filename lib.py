@@ -56,14 +56,13 @@ def confirm_update_token(ut, rt):
 # without sleeping)
 override_time_for_testing = False
 
-
 def current_time():
+    global override_time_for_testing
     if override_time_for_testing:
-        # TODO-DAN I commented out the next line - doesn't make sense to me with no parameters.
-        # logging
         return override_time_for_testing
     else:
         return time.time()
+
 
 
 def set_current_time_for_testing(floating_seconds):
