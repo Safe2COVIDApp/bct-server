@@ -42,7 +42,7 @@ class Server:
                 update_token(replacement_token(seed, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
-            data['contacts_id'] = contacts
+            data['contact_ids'] = contacts
         if locations:
             data['locations'] = locations
         headers = {}
@@ -50,7 +50,6 @@ class Server:
         if current_time:
             headers['X-Testing-Time'] = str(current_time)
         data.update(kwargs)
-        # pdb.set_trace()
         logger.info("Sending %s: %s" % (endpoint_name, str(data)))
         req = requests.post(self.url + endpoint_name, json=data, headers=headers)
         #logger.info('after %s call' % endpoint_name)
@@ -125,8 +124,8 @@ class Server:
         try:
             for file_name in os.listdir(dir_name):
                 if file_name.endswith('.data'):
-                    (code, date_and_extension) = file_name.split(':')
-                    if code == contact_id:
+                    components = file_name.split(':')
+                    if components[0] == contact_id:
                         matches.append(json.load(open(dir_name + '/' + file_name)))
         except FileNotFoundError:
             pass
@@ -181,7 +180,7 @@ def run_server(server_urls=None, port=None):
             logger.info('before terminate, return code is %s' % proc.returncode)
             proc.terminate()
             for line in open(log_file_path).readlines():
-                line.replace('\n', '')
+                line = line.replace('\n', '')
                 logger.info('%s output: %s' % (url, line))
             #logger.info('terminated')
     return

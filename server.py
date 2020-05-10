@@ -18,7 +18,7 @@ import uuid
 import signal
 import atexit
 import sys
-from lib import set_current_time_for_testing
+from lib import set_current_time_for_testing, iso_time_from_seconds_since_epoch, current_time
 
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
@@ -247,10 +247,31 @@ def get_data_from_neighbors():
         request.addErrback(sync_error)
     return
 
+def delete_expired_data_success(result):
+    logger.info('finished deleting from expired data')
+    return
+
+def delete_expired_data_failure(failure):
+    logger.failure("Logging an uncaught exception", failure = failure)
+    return
+
+def delete_expired_data():
+    logger.info("Expiring data")
+    contacts.move_expired_data_to_deletion_list()
+    function_to_run_in_thread = defered_function(contacts.delete_from_deletion_list)
+    defered = deferToThread(function_to_run_in_thread)
+    defered.addCallback(delete_expired_data_success)
+    defered.addErrback(delete_expired_data_failure)
+    return
 
 if 0 != len(servers):
-    l = task.LoopingCall(get_data_from_neighbors)
-    l.start(int(config.get('neighbor_sync_period', 600.0)))
+    l1 = task.LoopingCall(get_data_from_neighbors)
+    # TODO-DAN Shouldnt this be getfloat ?
+    l1.start(int(config.get('neighbor_sync_period', 600.0)))
+
+l2 = task.LoopingCall(delete_expired_data)
+#l2.start(24*60*60)
+l2.start(10)
 
 site = twserver.Site(Simple())
 reactor.listenTCP(int(config.get('port', 8080)), site)
