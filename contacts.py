@@ -157,33 +157,36 @@ class FSBackedThreeLevelDict:
         # if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
         #    return
-        if 6 > len(key):
-            raise Exception("Key %s must by at least 6 characters long" % key)
-        key = key.upper()
-
-        chunks, dir_name = self.get_directory_name_and_chunks(key)
-        floating_seconds_and_serial_number = (floating_seconds, serial_number)
-
-        # first put this floating_seconds_and_serial_number into the item list
-        # TODO-DAN code inspector suggests should be using isinstance()
-        if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
-            self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds_and_serial_number]
-        else:
-            self.items[chunks[0]][chunks[1]][chunks[2]][key].append(floating_seconds_and_serial_number)
-
-        os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
-        file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
-        file_path = '%s/%s' % (dir_name, file_name)
-        logger.info('writing {value} to {directory}', value = value, directory = self.directory + '/' + file_path)
-        with open(self.directory + '/' + file_path, 'w') as file:
-            json.dump(value, file)
-        self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
-        self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = file_path
-        self._insert_disk(key)
-        self.item_count += 1
         ut = value.get('update_token')
-        if ut:
-            self.update_index[ut] = file_name
+        if ut in self.update_index:
+            logger.info("Silently ignoring duplicate of update token", ut)
+        else:
+            if 6 > len(key):
+                raise Exception("Key %s must by at least 6 characters long" % key)
+            key = key.upper()
+
+            chunks, dir_name = self.get_directory_name_and_chunks(key)
+            floating_seconds_and_serial_number = (floating_seconds, serial_number)
+
+            # first put this floating_seconds_and_serial_number into the item list
+            # TODO-DAN code inspector suggests should be using isinstance()
+            if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
+                self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds_and_serial_number]
+            else:
+                self.items[chunks[0]][chunks[1]][chunks[2]][key].append(floating_seconds_and_serial_number)
+
+            os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
+            file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
+            file_path = '%s/%s' % (dir_name, file_name)
+            logger.info('writing {value} to {directory}', value = value, directory = self.directory + '/' + file_path)
+            with open(self.directory + '/' + file_path, 'w') as file:
+                json.dump(value, file)
+            self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
+            self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = file_path
+            self._insert_disk(key)
+            self.item_count += 1
+            if ut:
+                self.update_index[ut] = file_name
         return
 
     def map_over_matching_data(self, key, since, now):
@@ -285,6 +288,7 @@ class FSBackedThreeLevelDict:
 
 # TODO-DAN it complains class ContactDict must implement all abstract methods
 # MITRA -- what is 'it'?
+# TODO-DAN code inspection on my IDE
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -293,7 +297,10 @@ class ContactDict(FSBackedThreeLevelDict):
         super().__init__(directory)
 
     def _insert_disk(self, key):
-        logger.info('ignoring _insert_disk for ContactDict')
+        """
+        Subclass dependent part of _insert, nothing to do
+        """
+        #logger.info('ignoring _insert_disk for ContactDict')
         return
 
     def _map_over_matching_contacts(self, prefix, ids, since, now, start_pos=0):
@@ -368,6 +375,9 @@ class SpatialDict(FSBackedThreeLevelDict):
         return key_string
 
     def _insert_disk(self, key_string):
+        """
+        Subclass dependent part of _insert, add to indexes
+        """
         (lat, long) = coords = self.coords[key_string]
 
         # only insert if coords not currently in keys

@@ -13,8 +13,8 @@ def test_sync():
     server_url2 = 'http://localhost:%d' % (port_2)
     server_urls = '%s, %s' % (server_url1, server_url2)
 
-    json_data_1 = [{"id": "123456789"}]
-    json_data_2 = [{"id": "987654321"}]
+    json_data_1 = [{"id": "123456789", "update_token": "AA1234"}]
+    json_data_2 = [{"id": "987654321", "update_token": "AA9876"}]
     # gack, for some reason we assertion failures hang the tests when done within the 'with'
     # so for now we just check all the assertions after the with
     with run_server_in_context(server_urls=server_urls, port=port_1) as server_1:
