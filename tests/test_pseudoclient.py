@@ -3,7 +3,7 @@ import logging
 import time
 import copy
 import math
-from lib import new_seed, update_token, replacement_token
+from lib import new_seed, update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, set_current_time_for_testing, inc_current_time_for_testing
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -17,6 +17,7 @@ STATUS_HEALTHY = 4
 ######
 # This file is intended to give a roadmap for functionality needed in the real (app) client.
 
+set_current_time_for_testing(100000)
 
 class Client:
 
@@ -37,6 +38,8 @@ class Client:
         self.location_resolution = 4  # lat/long decimal points - 4 is 10 meters
         self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
+        self.location_time_significant = 1 # Time in seconds we want to consider significant (1 for testing)
+        self.expire_locations_seconds = 45 # Would be 45*24*60*60
 
         # Access generic test functions and data
         self.server = server
@@ -52,6 +55,7 @@ class Client:
 
         # Setup initial status
         self.new_id()
+        self.current_location = None
         self.move_to({'lat': 0, 'long': 0}) # In a real client this would be called with GPS results
         # This status changes based on something external to notifications, for example self-reported symptoms or a test result
         self.local_status = STATUS_HEALTHY
@@ -85,12 +89,18 @@ class Client:
 
     def move_to(self, loc):
         """
-        Manage a new location - a real client needs to track how long in a space.
+        Manage a new location -
+        A real client needs to expire from locations.append if older than 45 days
         TODO-126A handle time in location
         TODO-126B expire old locations and ids
         """
+        old_location = self.current_location
+        if old_location:
+            old_location["end_time"] = current_time()
+            if (old_location["end_time"] - old_location["start_time"]) >= self.location_time_significant:
+                self.locations.append(old_location)
+        loc['start_time'] = current_time()
         self.current_location = loc
-        self.locations.append(loc)
 
     def _min(self, a):
         return math.floor(min(a) * 10 ** self.bounding_box_minimum_dp) * 10 ** (-self.bounding_box_minimum_dp)
@@ -137,7 +147,8 @@ class Client:
         """
         Perform a regular poll of the server with /status/scan, and process any results.
         """
-        json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(), locations=[self._box()],
+        json_data = self.server.scan_status_json(contact_prefixes=self._prefixes(),
+                                                 locations=[self._box()] if len(self.locations) else [],
                                                  since=self.since)
         logging.info("%s: poll result: %s" % (self.name, str(json_data)))
 
@@ -153,7 +164,7 @@ class Client:
         self.location_alerts.extend(
             filter(
                 lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_updatetokens,
-                json_data['locations']))
+                json_data.get('locations', [])))
 
         # Look for any updated data points
         # Find the replaces tokens for both ids and locations - these are the locations this data point replaces
@@ -214,6 +225,8 @@ class Client:
         loc = copy.deepcopy(location)
         for k in ['lat', 'long']:
             loc[k] = round(location[k], self.location_resolution)
+        for k in ['start_time', 'end_time']:
+            loc[k] = iso_time_from_seconds_since_epoch(location[k])
         return loc
 
     def _send_to(self, new_status):
@@ -291,6 +304,16 @@ class Client:
         if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
             self._send_to(new_status)
 
+    def expire_data(self):
+        """
+        Expire old location and id data
+        """
+        expiry_time = current_time()-self.expire_locations_seconds
+        if len(self.locations):
+            while self.locations[0].get('end_time') < expiry_time:
+                self.locations.pop(0)
+        #TODO-126B expire ids
+
     def cron15(self):
         """
         Action taken every 15 seconds
@@ -302,6 +325,7 @@ class Client:
         Action taken every hour - check for updates
         """
         self.poll() # Performs a /status/scan
+        self.expire_data()
 
     def simulate_random_walk(self, distance):
         """
@@ -327,6 +351,7 @@ class Client:
         :return:
         """
         for step in range(0,step_parameters['steps']):
+            inc_current_time_for_testing() # At least one clock tick
             # Possibly move the client
             if not random.randrange(0, step_parameters['chance_of_walking']):
                 self.simulate_random_walk(10)
@@ -368,28 +393,39 @@ def test_pseudoclient_2client(server, data):
     alice.init(data.init_req)
     bob = Client(server=server, data=data, name="Bob")
     bob.init(data.init_req)
+    inc_current_time_for_testing()
     bob.simulate_random_walk(10)  # Bob has been in two locations now
+    inc_current_time_for_testing()
     alice.simulate_observes(bob)
+    inc_current_time_for_testing()
     bob.simulate_observes(alice)
+    inc_current_time_for_testing()
+    alice.simulate_random_walk(10)  # Alice needs to move to update her locations
     logging.info("==Alice sends in a status of Infected(4) along with Bob's id and a location")
+    inc_current_time_for_testing()
     alice.local_status_event(STATUS_PUI)
     logging.info("==Bob polls and should see Alice's notice with both ID and location")
+    inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should see alice
     assert len(bob.id_alerts) == 1
     assert len(bob.location_alerts) == 1
     assert bob.status == STATUS_UNKNOWN
     logging.info("==Alice updates her status=1 (Infected)")
+    inc_current_time_for_testing()
     alice.local_status_event(STATUS_INFECTED)
     logging.info("==Bob polls and should see the updated ID and location from Alice with status=1(Infected); he'll send in his own status as PUI with his own location and ids")
+    inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should get the update from alice
     assert len(bob.id_alerts) == 2
     assert len(bob.location_alerts) == 2
     assert bob.status == STATUS_PUI
     logging.info("==Bob polls and should see his own status=3(PUI) coming back, but ignore it")
+    inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should get the update from alice
     logging.info('Completed test_pseudoclient_work')
 
 def test_pseudoclient_multiclient(server, data):
+
     """
     This test simulates a growing group of clients, at each step, the number of clients is increased and a simulation_step is taken for each
     results aren't checked,
@@ -429,6 +465,7 @@ def test_pseudoclient_multiclient(server, data):
             c.simulation_step(step_parameters, clients)
 
 def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
+
     """
     This test simulates a large group of clients in separate threads.
     results aren't checked,
