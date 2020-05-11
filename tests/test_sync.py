@@ -11,7 +11,7 @@ def test_sync():
     port_2 = get_free_port()
     server_url1 = 'http://localhost:%d' % (port_1)
     server_url2 = 'http://localhost:%d' % (port_2)
-    server_urls = '%s, %s' % (server_url1, server_url2)
+    server_urls = '%s,%s' % (server_url1, server_url2)
 
     json_data_1 = [{"id": "123456789", "update_token": "AA1234"}]
     json_data_2 = [{"id": "987654321", "update_token": "AA9876"}]
@@ -38,13 +38,15 @@ def test_sync():
     assert 'contact_ids' not in resp_2_1_data
 
     #all_contacts = sort_list_of_dictionaries(json_data_1 + json_data_2)
-    all_contacts1_2 = copy.deepcopy(json_data_1 + json_data_2)
-    all_contacts1_2[0]['path'] = [server_url2,server_url1]
-    all_contacts1_2[1]['path'] = [server_url1]
-    assert 'contact_ids' in resp_1_2_data
-    # This test wont work - it cant compare "path:[...]" BUT its not equal anyway
-    assert sort_list_of_dictionaries(resp_1_2_data['contact_ids']) == sort_list_of_dictionaries(all_contacts1_2)
 
+
+    all_contacts1_2 = copy.deepcopy(json_data_1 + json_data_2)
+    all_contacts1_2[1]['path'] = [server_url2]
+    assert 'contact_ids' in resp_1_2_data
     assert 'contact_ids' in resp_2_2_data
-    assert sort_list_of_dictionaries(resp_2_2_data['contact_ids']) == all_contacts
+    # This test wont work - it cant compare "path:[...]" BUT its not equal anyway
+    assert [i["id"] for i in resp_1_2_data['contact_ids']] == ["123456789", "987654321"]
+    assert resp_1_2_data['contact_ids'][1]['path'][0] == server_url2
+    assert [i["id"] for i in resp_2_2_data['contact_ids']] == ["987654321", "123456789"]
+    assert resp_2_2_data['contact_ids'][1]['path'][0] == server_url1
     return
