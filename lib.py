@@ -63,13 +63,15 @@ def current_time():
     else:
         return time.time()
 
-
-
 def set_current_time_for_testing(floating_seconds):
     global override_time_for_testing
     override_time_for_testing = floating_seconds
     return
 
+def inc_current_time_for_testing(delta_seconds=1):
+    global override_time_for_testing
+    override_time_for_testing += delta_seconds
+    return
 
 def unix_time_from_iso(iso_string):
     """ convert an iso 8601 time to floating seconds since epoch """
