@@ -244,19 +244,6 @@ class FSBackedThreeLevelDict:
             self.item_count -= 1
         return
 
-    def get_file_paths_between_times(self, since, until):
-        """
-        get_file_paths_between_times returns a list of file_paths to retrieve and the last time that an entry was made
-        """
-        times_to_retrieve = list(
-            self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))])
-        if 0 != len(times_to_retrieve):
-            last_time = times_to_retrieve[-1][0]
-        else:
-            last_time = 0
-        ret = [self.time_and_serial_number_to_file_path_map[time_and_serial_number] for time_and_serial_number  in times_to_retrieve]
-        return ret, last_time
-
     def get_file_path_from_file_name(self, file_name):
         components = file_name.split(':')
         chunks, dir_name = self.get_directory_name_and_chunks(components[0])
@@ -584,13 +571,38 @@ class Contacts:
             since_string = "1970-01-01T01:01Z"
 
         since = unix_time_from_iso(since_string)
-        contacts, latest_contact_time = self.contact_dict.get_file_paths_between_times(since, now)
-        locations, latest_location_time = self.spatial_dict.get_file_paths_between_times(since, now)
-        latest_time = max(latest_contact_time, latest_location_time)
 
-        ret = {'until': iso_time_from_seconds_since_epoch(latest_time),
-               'since': since_string}
+        # correlate the two dictionaries
+        # ist of (timecode, serial_number, listL_type) between since and until
+        data = sortedlist(key = lambda k: k[0])
+        for the_dict in self.map_over_dicts():
+            current_list = the_dict.sorted_list_by_time_and_serial_number
+            data.update(map(lambda item: (item[0], item[1], the_dict), current_list[current_list.bisect_left((since, 0)):current_list.bisect_left((now, 0))]))
+            
+        length = len(data)
+        number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
 
+        # create a dict index by either contact_dict or spatial_dict
+        lists_to_return = { self.contact_dict: [],
+                            self.spatial_dict: []}
+        # truncate the list
+
+        truncated_data = data[0:min(length,number_to_return)]
+        for datum in truncated_data:
+            the_dict = datum[2]
+            lists_to_return[datum[2]].append(the_dict.time_and_serial_number_to_file_path_map[(datum[0], datum[1])])
+            
+        contacts = lists_to_return[self.contact_dict]
+        locations = lists_to_return[self.spatial_dict]
+        
+        ret = {'since': since_string,
+               'more_data': number_to_return < length}
+        if ret['more_data']:
+            latest_time = data[number_to_return][0]
+        else:
+            latest_time = now
+        ret['until'] = iso_time_from_seconds_since_epoch(latest_time)
+               
         if 0 != len(contacts):
             def get_contact_id_data():
                 return list(self.contact_dict.retrieve_json_from_file_paths(contacts))
