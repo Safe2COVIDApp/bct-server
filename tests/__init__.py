@@ -1,5 +1,5 @@
 import logging
-from subprocess import Popen, PIPE
+from subprocess import Popen
 from tempfile import TemporaryDirectory
 import socket
 import time
@@ -8,7 +8,7 @@ import shutil
 from signal import SIGUSR1
 import json
 import os
-from lib import update_token, replacement_token
+from lib import get_update_token, replacement_token
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -35,11 +35,11 @@ class Server:
 
     def _status(self, endpoint_name, seed, contacts, locations, **kwargs):
         # contacts and locations should already have update_tokens if want that functionality
-        #logger.info('before %s call' % endpoint_name)
+        # logger.info('before %s call' % endpoint_name)
         data = {}
         if seed and kwargs.get('replaces'):
             data['update_tokens'] = [
-                update_token(replacement_token(seed, i))
+                get_update_token(replacement_token(seed, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
             data['contact_ids'] = contacts
@@ -52,7 +52,7 @@ class Server:
         data.update(kwargs)
         logger.info("Sending %s: %s" % (endpoint_name, str(data)))
         req = requests.post(self.url + endpoint_name, json=data, headers=headers)
-        #logger.info('after %s call' % endpoint_name)
+        # logger.info('after %s call' % endpoint_name)
         return req
 
     def send_status(self, seed=None, contacts=None, locations=None, **kwargs):
@@ -71,7 +71,7 @@ class Server:
         assert resp.status_code == 200
         return resp.json()
 
-    def status_update(self, seed=None, contacts=None, locations=None, **kwargs):  # Must have replaces
+    def status_update(self, seed=None, **kwargs):  # Must have replaces
         return self._status('/status/update', seed, None, None, **kwargs)
 
     def status_update_json(self, seed=None, contacts=None, locations=None, **kwargs):  # Must have replaces
@@ -99,7 +99,7 @@ class Server:
         assert resp.status_code == 200
         return resp.json()
 
-    def reset(self, delete_files = True):
+    def reset(self, delete_files=True):
         logger.info('sending signal to server')
         if delete_files:
             for file_name in os.listdir(self.directory):
@@ -131,7 +131,7 @@ class Server:
             pass
         return matches
 
-    def get_data_to_match_hash(self, match_term):
+    def get_all_matches(self):
         matches = []
         for root, sub_dirs, files in os.walk('%s/spatial_dict' % self.directory):
             for file_name in files:
@@ -174,7 +174,7 @@ def run_server(server_urls=None, port=None):
             time.sleep(3.0)
             logger.info('about to yield')
             url = 'http://localhost:%s' % port
-            #url = 'http://localhost:%s' % "8080" # Just for debugging test
+            # url = 'http://localhost:%s' % "8080" # Just for debugging test
             yield Server(url, proc, tmp_dir_name)
             logger.info('back from yield')
             logger.info('before terminate, return code is %s' % proc.returncode)
@@ -182,7 +182,7 @@ def run_server(server_urls=None, port=None):
             for line in open(log_file_path).readlines():
                 line = line.replace('\n', '')
                 logger.info('%s output: %s' % (url, line))
-            #logger.info('terminated')
+            # logger.info('terminated')
     return
 
 

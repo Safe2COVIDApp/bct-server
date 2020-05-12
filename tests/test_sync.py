@@ -1,7 +1,7 @@
 import time
 import logging
 import copy
-from . import run_server_in_context, get_free_port, sort_list_of_dictionaries
+from . import run_server_in_context, get_free_port
 
 logger = logging.getLogger(__name__)
 
@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 def test_sync():
     port_1 = get_free_port()
     port_2 = get_free_port()
-    server_url1 = 'http://localhost:%d' % (port_1)
-    server_url2 = 'http://localhost:%d' % (port_2)
+    server_url1 = 'http://localhost:%d' % port_1
+    server_url2 = 'http://localhost:%d' % port_2
     server_urls = '%s,%s' % (server_url1, server_url2)
 
     json_data_1 = [{"id": "123456789", "update_token": "AA1234"}]
@@ -37,8 +37,7 @@ def test_sync():
     assert resp_2_1.status_code == 200
     assert 'contact_ids' not in resp_2_1_data
 
-    #all_contacts = sort_list_of_dictionaries(json_data_1 + json_data_2)
-
+    # all_contacts = sort_list_of_dictionaries(json_data_1 + json_data_2)
 
     all_contacts1_2 = copy.deepcopy(json_data_1 + json_data_2)
     all_contacts1_2[1]['path'] = [server_url2]

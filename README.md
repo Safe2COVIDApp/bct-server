@@ -13,9 +13,9 @@ https://bit.ly/safe2protocol
 * Each contact is a hex string
 * Simple filesystem storage.  
   * Contacts are stored in a 4 level directory structure.  Such that for contact ABCDEFGHxxx, it is stored is AB/CD/EF/ABCDEFGHxxx.  Each contact is a file which contains JSON data.
-  * Geograhic locations are stored in a 4 level directory structure ( TODO-DAN exapand )
+  * Geographic locations are stored in a 4 level directory structure ( TODO-DAN expand )
 * All contacts are also stored in memory
-* On startup the filesystem is traversed to load data (there are various optimizations that can be done to reduce load time, such as checkpointing the local list of contacts
+* On startup the filesystem is traversed to load data (there are various optimizations that can be done to reduce load time, such as check-pointing the local list of contacts
 * Python/Twisted server
 
 # Prerequisites
