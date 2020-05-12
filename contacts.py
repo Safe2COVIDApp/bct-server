@@ -159,7 +159,7 @@ class FSBackedThreeLevelDict:
         #    return
         ut = value.get('update_token')
         if ut in self.update_index:
-            logger.info("Silently ignoring duplicate of update token", ut)
+            logger.info("Silently ignoring duplicate of update token: %s" % (ut))
         else:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
