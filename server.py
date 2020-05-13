@@ -96,7 +96,8 @@ logger.info('starting server')
 try:
     servers = json.load(open(servers_file_path))
     logger.info('read last read date from server neighbors from {servers_file_path}', servers_file_path=servers_file_path)
-except:  # TODO-DAN code checker doesn't like such a broad exception catch
+# TODO-DAN, code inspector didn't like the broad exception, and a test showed its FileNotFoundError, are you expecting other errors here ?
+except FileNotFoundError as err:
     servers = {}
 if config.get('servers'):
     for server in config.get('servers').split(','):

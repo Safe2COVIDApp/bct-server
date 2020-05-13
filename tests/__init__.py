@@ -74,8 +74,8 @@ class Server:
     def status_update(self, seed=None, **kwargs):  # Must have replaces
         return self._status('/status/update', seed, None, None, **kwargs)
 
-    def status_update_json(self, seed=None, contacts=None, locations=None, **kwargs):  # Must have replaces
-        resp = self.status_update(seed=seed, contacts=contacts, locations=locations, **kwargs)
+    def status_update_json(self, seed=None, **kwargs):  # Must have replaces
+        resp = self.status_update(seed=seed, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
