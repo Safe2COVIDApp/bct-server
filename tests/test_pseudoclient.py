@@ -29,8 +29,7 @@ class Client:
              some variables will be overwritten with values returned in the init call.
              1 meter at the equator (and we start at 0,0) is approx 0.00001 degree of long
         """
-        # TODO-MITRA - check prefix length - when is it bits and when characters
-        self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
+        self.prefix_bits = 64  # How many bits to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
         # Distance apart in meters of a GPS report to be considered valid
         # note because rounding to 10meters in location_resolution this needs to be 20 to catch within 10 meters distance
@@ -78,7 +77,7 @@ class Client:
         self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp,
                                            self.init_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp))
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
-        self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
+        self.prefix_bits = self.init_resp.get('prefix_bits', self.prefix_bits)
 
     def new_id(self):
         """
@@ -91,8 +90,6 @@ class Client:
         """
         Manage a new location -
         A real client needs to expire from locations.append if older than 45 days
-        TODO-126A handle time in location
-        TODO-126B expire old locations and ids
         """
         old_location = self.current_location
         if old_location:
@@ -123,7 +120,8 @@ class Client:
         """
         Return a list of prefixes that can be used for /status/scan
         """
-        return [i[:self.prefix_length] for i in self.ids_used]
+        prefix_chars = int(self.prefix_bits/8)
+        return [i[:prefix_chars] for i in self.ids_used]
 
     def close_to(self, otherloc, loc, distance):
         """
