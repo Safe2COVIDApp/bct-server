@@ -46,11 +46,11 @@ class Client:
         self.name = name
 
         # Initialize arrays where we remember things
-        self.ids_used = [] # A list of all ids used, these never leave the client except via bluetooth beacon
+        self.ids_used = [] # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
         self.locations = [] # A list of locations this client has been for an epidemiologically significant time
         self.observed_ids = [] # A list of all ids we have seen
         self.location_alerts = [] # A list of alerts sent to us by the server filtered by locations we have been at
-        self.id_alerts = [] # A list of contact ids sent to us by the server filtered by ids_used
+        self.id_alerts = [] # A list of {id, update_token} sent to us by the server filtered by ids_used
 
         # Setup initial status
         self.new_id()
@@ -84,7 +84,7 @@ class Client:
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
         self.current_id = "%X" % random.randrange(0, 2 ** 128)
-        self.ids_used.append(self.current_id)
+        self.ids_used.append({"id": self.current_id, "last_used": current_time()})
 
     def move_to(self, loc):
         """
@@ -121,7 +121,7 @@ class Client:
         Return a list of prefixes that can be used for /status/scan
         """
         prefix_chars = int(self.prefix_bits/8)
-        return [i[:prefix_chars] for i in self.ids_used]
+        return [i['id'][:prefix_chars] for i in self.ids_used]
 
     def close_to(self, otherloc, loc, distance):
         """
@@ -153,8 +153,9 @@ class Client:
         # Record when data is updated till, for our next request
         self.since = json_data.get('until')
 
-        # Record any ids in the poll that match one we have used
-        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
+        # Record any ids in the poll that match one we have used (id = {id, last_used})
+        ids_to_match = [i['id'] for i in self.ids_used]
+        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in ids_to_match)])
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
@@ -310,7 +311,9 @@ class Client:
         if len(self.locations):
             while self.locations[0].get('end_time') < expiry_time:
                 self.locations.pop(0)
-        #TODO-126B expire ids
+        if len(self.ids_used):
+            while self.ids_used[0].get('last_used') < expiry_time:
+                self.ids_used.pop(0)
 
     def cron15(self):
         """
