@@ -1,9 +1,8 @@
 import random
 import logging
-import time
 import copy
 import math
-from lib import new_seed, update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, set_current_time_for_testing, inc_current_time_for_testing
+from lib import new_seed, get_update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, set_current_time_for_testing, inc_current_time_for_testing
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -17,7 +16,9 @@ STATUS_HEALTHY = 4
 ######
 # This file is intended to give a roadmap for functionality needed in the real (app) client.
 
+
 set_current_time_for_testing(100000)
+
 
 class Client:
 
@@ -37,8 +38,8 @@ class Client:
         self.location_resolution = 4  # lat/long decimal points - 4 is 10 meters
         self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
-        self.location_time_significant = 1 # Time in seconds we want to consider significant (1 for testing)
-        self.expire_locations_seconds = 45 # Would be 45*24*60*60
+        self.location_time_significant = 1  # Time in seconds we want to consider significant (1 for testing)
+        self.expire_locations_seconds = 45  # Would be 45*24*60*60
 
         # Access generic test functions and data
         self.server = server
@@ -46,24 +47,26 @@ class Client:
         self.name = name
 
         # Initialize arrays where we remember things
-        self.ids_used = [] # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
-        self.locations = [] # A list of locations this client has been for an epidemiologically significant time
-        self.observed_ids = [] # A list of all ids we have seen
-        self.location_alerts = [] # A list of alerts sent to us by the server filtered by locations we have been at
-        self.id_alerts = [] # A list of {id, update_token} sent to us by the server filtered by ids_used
+        self.ids_used = []  # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
+        self.locations = []  # A list of locations this client has been for an epidemiologically significant time
+        self.observed_ids = []  # A list of all ids we have seen
+        self.location_alerts = []  # A list of alerts sent to us by the server filtered by locations we have been at
+        self.id_alerts = []  # A list of {id, update_token} sent to us by the server filtered by ids_used
 
         # Setup initial status
+        self.init_resp = None  # Setup in new_id
+        self.current_id = None  # Setup in new_id
         self.new_id()
         self.current_location = None
-        self.move_to({'lat': 0, 'long': 0}) # In a real client this would be called with GPS results
+        self.move_to({'lat': 0, 'long': 0})  # In a real client this would be called with GPS results
         # This status changes based on something external to notifications, for example self-reported symptoms or a test result
         self.local_status = STATUS_HEALTHY
         # Status based on local_status but also any alerts from others.
         self.status = STATUS_HEALTHY
         # Seed on any status that might need updating
         self.seed = None
-        self.length = 0 # How many records have been reported with this seed
-        self.since = None # The time we last did a /status/scan
+        self.length = 0  # How many records have been reported with this seed
+        self.since = None  # The time we last did a /status/scan
 
     def init(self, init_data):
         """
@@ -123,13 +126,14 @@ class Client:
         prefix_chars = int(self.prefix_bits/8)
         return [i['id'][:prefix_chars] for i in self.ids_used]
 
-    def close_to(self, otherloc, loc, distance):
+    @staticmethod
+    def close_to(other_loc, loc, distance):
         """
         Calculate if the two locations are closer than distance
         This is a very crude "close_to" function because of the rounding in positions, could obviously be much better.
         """
-        return math.sqrt( ((otherloc['lat'] - loc['lat']) ** 2 +
-                           (otherloc['long'] - loc['long']) ** 2 )) * scale1meter <= distance
+        return math.sqrt(((other_loc['lat'] - loc['lat']) ** 2 +
+                          (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
@@ -139,7 +143,7 @@ class Client:
         Note that since the server does not receive a time from the infected person
         there is no concept of time in this match.
         """
-        return any(self.close_to(pastloc, loc, self.safe_distance) for pastloc in self.locations)
+        return any(Client.close_to(pastloc, loc, self.safe_distance) for pastloc in self.locations)
 
     def poll(self):
         """
@@ -159,10 +163,10 @@ class Client:
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
-        existing_location_updatetokens = [loc.get('update_token') for loc in self.locations]
+        existing_location_update_tokens = [loc.get('update_token') for loc in self.locations]
         self.location_alerts.extend(
             filter(
-                lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_updatetokens,
+                lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens,
                 json_data.get('locations', [])))
 
         # Look for any updated data points
@@ -172,15 +176,15 @@ class Client:
         location_replaces = [loc.get('replaces') for loc in self.location_alerts if loc.get('replaces')]
 
         # Find update_tokens that have been replaced
-        id_updatetokens = [update_token(rt) for rt in id_replaces]
-        location_updatetokens = [update_token(rt) for rt in location_replaces]
+        id_update_tokens = [get_update_token(rt) for rt in id_replaces]
+        location_update_tokens = [get_update_token(rt) for rt in location_replaces]
 
         # Mark any ids or locations that have been replaced
         for i in self.id_alerts:
-            if i.get('update_token') in id_updatetokens:
+            if i.get('update_token') in id_update_tokens:
                 i['replaced'] = True
         for loc in self.location_alerts:
-            if loc.get('update_token') in location_updatetokens:
+            if loc.get('update_token') in location_update_tokens:
                 loc['replaced'] = True
 
         # Recalculate our own status based on the current set of location and id alerts and our local_status
@@ -195,32 +199,31 @@ class Client:
     def listen(self, contact_id):
         self.observed_ids.append({'id': contact_id, 'duration': 15})
 
+    #  === The next section relates to /send/status
 
-    ###  The next section relates to /send/status
-
-    def _next_updatetoken(self):
+    def _next_update_token(self):
         """
         Find a unique update_token to use, based on the seed and length
         """
-        ut = update_token(replacement_token(self.seed, self.length))
+        ut = get_update_token(replacement_token(self.seed, self.length))
         self.length += 1
         return ut
 
     def _prep_contact(self, c):
         """
         Prepare a contact data point for /send/status,
-        adds an updatetoken which is used to detect if its been sent previously
+        adds an update_token which is used to detect if its been sent previously
         """
-        c['update_token'] = self._next_updatetoken()
+        c['update_token'] = self._next_update_token()
         return c
 
     def _prep_location(self, location):
         """
         Prepare a location data point for /send/status,
-        adds an updatetoken which is used to detect if its been sent previously
+        adds an update_token which is used to detect if its been sent previously
         a copy is returned with rounded values, but we keep the full resolution result for distance calculations
         """
-        location['update_token'] = self._next_updatetoken()
+        location['update_token'] = self._next_update_token()
         loc = copy.deepcopy(location)
         for k in ['lat', 'long']:
             loc[k] = round(location[k], self.location_resolution)
@@ -263,7 +266,7 @@ class Client:
         """
         logging.info("%s: local status change %s -> %s" % (self.name, self.status, new_status))
         self.local_status = new_status
-        self._recalculate_status() # This may trigger a /send/status or /send/update
+        self._recalculate_status()  # This may trigger a /send/status or /send/update
 
     def _recalculate_status(self):
         """
@@ -277,13 +280,13 @@ class Client:
         new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
                          + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
                          + [self.local_status])
-        if (new_status != self.status):
+        if new_status != self.status:
             self._notify_status(new_status)  # Correctly handles case of no change and can trigger /status/send or /status/update
             self.status = new_status
 
     def _notify_status(self, new_status):
         """
-        Notify status and where required any observered ids and locations to server.
+        Notify status and where required any observed ids and locations to server.
 
         There are only a few valid transitions
         1: Alice Healthy or Unknown receives notification (from #2 or #4) becomes PUI - status/send causes Bob #5
@@ -325,7 +328,7 @@ class Client:
         """
         Action taken every hour - check for updates
         """
-        self.poll() # Performs a /status/scan
+        self.poll()  # Performs a /status/scan
         self.expire_data()
 
     def simulate_random_walk(self, distance):
@@ -347,12 +350,12 @@ class Client:
         """
         Perform a single step of a simulation - this may change as new features are tested.
 
-        :param simulation_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
+        :param step_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
         :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
         :return:
         """
-        for step in range(0,step_parameters['steps']):
-            inc_current_time_for_testing() # At least one clock tick
+        for step in range(0, step_parameters['steps']):
+            inc_current_time_for_testing()  # At least one clock tick
             # Possibly move the client
             if not random.randrange(0, step_parameters['chance_of_walking']):
                 self.simulate_random_walk(10)
@@ -362,7 +365,7 @@ class Client:
             # In this step we look at a provided read_only array to see of who is close to ourselves,
             for o in readonly_clients:
                 if o != self:  # Skip self
-                    if o.close_to(o.current_location, self.current_location, step_parameters['bluetooth_range']):
+                    if Client.close_to(o.current_location, self.current_location, step_parameters['bluetooth_range']):
                         self.simulate_observes(o)
                         logging.info("%s: observed %s" % (self.name, o.name))
 
@@ -425,6 +428,7 @@ def test_pseudoclient_2client(server, data):
     bob.cron_hourly()  # Bob polls and should get the update from alice
     logging.info('Completed test_pseudoclient_work')
 
+
 def test_pseudoclient_multiclient(server, data):
 
     """
@@ -451,9 +455,9 @@ def test_pseudoclient_multiclient(server, data):
     clients = []
 
     def _add_client():
-        c = Client(server=server, data=data, name=str(len(clients)))
-        c.init(data.init_req)
-        clients.append(c)
+        cl = Client(server=server, data=data, name=str(len(clients)))
+        cl.init(data.init_req)
+        clients.append(cl)
 
     logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
     for i in range(simulation_parameters['number_of_initial_clients']):
@@ -464,6 +468,7 @@ def test_pseudoclient_multiclient(server, data):
             _add_client()
         for c in clients:
             c.simulation_step(step_parameters, clients)
+
 
 def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
 
@@ -490,7 +495,7 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     threads = []
     for c in clients:
         # This next line is the one we want to multithread
-        this_thread = Thread(target=c.simulation_step, args = (step_parameters, clients,))
+        this_thread = Thread(target=c.simulation_step, args=(step_parameters, clients,))
         threads.append(this_thread)
         this_thread.start()
     for t in threads:

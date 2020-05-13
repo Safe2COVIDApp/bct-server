@@ -11,7 +11,6 @@ logger = logging.getLogger(__name__)
 
 
 # The hash_nonce and verify_nonce functions are a pair that may be changed as the function changes.
-# verify(seed, hashupdates(seed)) == true;
 
 def hash_nonce(seed):
     return hashlib.sha1(seed.encode()).hexdigest()
@@ -43,18 +42,19 @@ def replacement_token(seed, n):
 # Generate Update Token from Replacement Token
 # Requirements: Not reversible, confirmable
 # i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
-def update_token(rt):
+def get_update_token(rt):
     return fold_hash(hash_nonce(rt))
 
 
 # Check that the rt is a correct rt for the ut.
 def confirm_update_token(ut, rt):
-    return update_token(rt) == ut
+    return get_update_token(rt) == ut
 
 
 # current_time is a variable that CAN be set in testing mode (useful in testing so we remove randomness and allow tests
 # without sleeping)
 override_time_for_testing = False
+
 
 def current_time():
     global override_time_for_testing
@@ -63,15 +63,18 @@ def current_time():
     else:
         return time.time()
 
+
 def set_current_time_for_testing(floating_seconds):
     global override_time_for_testing
     override_time_for_testing = floating_seconds
     return
 
+
 def inc_current_time_for_testing(delta_seconds=1):
     global override_time_for_testing
     override_time_for_testing += delta_seconds
     return
+
 
 def unix_time_from_iso(iso_string):
     """ convert an iso 8601 time to floating seconds since epoch """
