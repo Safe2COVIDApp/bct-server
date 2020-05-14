@@ -37,10 +37,13 @@ class FSBackedThreeLevelDict:
         return defaultdict(FSBackedThreeLevelDict.dictionary_factory)
 
     def __init__(self, directory):
+        # { AA: { BB: { CC: AABBCCDEF123: [(floatingseconds, serialnumber)] } } }
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
         self.update_index = {}
+        # [ (floating_seconds, serial_number)* ] used to order data by time
         self.sorted_list_by_time_and_serial_number = sortedlist(key=lambda key: key[0])
+        # { (floating_seconds, serial_number): relative_file_path }
         self.time_and_serial_number_to_file_path_map = {}
         self.directory = directory
         os.makedirs(directory, 0o770, exist_ok=True)
@@ -51,6 +54,11 @@ class FSBackedThreeLevelDict:
 
     @staticmethod
     def _get_parts_from_filename(file_name):
+        """
+        Pull apart a file name
+        file_name: code:floating_seconds:serial_number.data
+        returns (code, floating_seconds, serial_number)
+        """
         simple_file_name = file_name.replace('.data', '')
         parts = simple_file_name.split(':')
         code = parts[0]
@@ -62,31 +70,40 @@ class FSBackedThreeLevelDict:
             serial_number = int(parts[2])
         return code, floating_seconds, serial_number
 
+    def _add_to_items(self, dirs, key, floating_seconds_and_serial_number):
+        contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]  # { key: [(floating_seconds, serial)]
+        if key in contact_dates:  # Already at least one item for this key
+            contact_dates[key].append(floating_seconds_and_serial_number)
+        else:
+            contact_dates[key] = [floating_seconds_and_serial_number]
+        self.item_count += 1
+
+    def _add_to_items_and_indexes(self, dirs, key, floating_seconds, serial_number, file_name, relative_file_path, update_token):
+        floating_seconds_and_serial_number = (floating_seconds, serial_number)
+        self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = relative_file_path
+        self._add_to_items(dirs, key, floating_seconds_and_serial_number)
+        self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
+        if update_token:
+            self.update_index[update_token] = file_name
+
     def _load(self):
+        """
+        This creates the data structures that correspond to what is on disk
+        """
+        # TODO-DAN this should probably be refactored with insert to extract common parts,
         for root, sub_dirs, files in os.walk(self.directory):
             for file_name in files:
                 if file_name.endswith('.data'):
-                    (code, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_filename(file_name)
+                    (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_filename(file_name)
                     dirs = root.split('/')[-3:]
-                    contact_dates = self.items[dirs[0]][dirs[1]][dirs[2]]
-                    self.sorted_list_by_time_and_serial_number.add((floating_seconds, serial_number))
                     relative_file_path = '/'.join([dirs[0], dirs[1], dirs[2], file_name])
-                    floating_seconds_and_serial_number = (floating_seconds, serial_number)
-                    self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = relative_file_path
-                    floating_seconds_and_serial_number_list = [floating_seconds_and_serial_number]
-                    if code in contact_dates:
-                        floating_seconds_and_serial_number_list = contact_dates[code]
-                        floating_seconds_and_serial_number_list.append(floating_seconds_and_serial_number)
-                    self.item_count += 1
-                    self.items[dirs[0]][dirs[1]][dirs[2]][code] = floating_seconds_and_serial_number_list
-
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
                     blob = json.load(open('/'.join([root, file_name])))
                     update_token = blob.get('update_token')
-                    if update_token:
-                        self.update_index[update_token] = file_name
-                    self._load_key(code, blob)
+
+                    self._add_to_items_and_indexes(dirs, key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
+                    self._load_key(key, blob)
         return
 
     def _load_key(self, key, blob):
@@ -154,44 +171,35 @@ class FSBackedThreeLevelDict:
         floating_seconds -- unix time
         serial_number -- int 
         """
-        key = self._key_string_from_blob(value)
+        key = self._key_string_from_blob(value) # On Spatial dict Implicitly does a make_key allowing _insert_disk to work below
         # we are NOT going to read multiple things from the file system for performance reasons
         # if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
         #    return
-        ut = value.get('update_token')
-        if ut in self.update_index:
-            logger.info("Silently ignoring duplicate of update token: %s" % ut)
+        update_token = value.get('update_token')
+        if update_token in self.update_index:
+            logger.info("Silently ignoring duplicate of update token: %s" % update_token)
         else:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
             key = key.upper()
-
             chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
-            floating_seconds_and_serial_number = (floating_seconds, serial_number)
-
-            # first put this floating_seconds_and_serial_number into the item list
-            # TODO-DAN code inspector suggests should be using isinstance()
-            if list != type(self.items[chunks[0]][chunks[1]][chunks[2]][key]):
-                self.items[chunks[0]][chunks[1]][chunks[2]][key] = [floating_seconds_and_serial_number]
-            else:
-                self.items[chunks[0]][chunks[1]][chunks[2]][key].append(floating_seconds_and_serial_number)
-
-            os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
             file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
-            file_path = '%s/%s' % (dir_name, file_name)
-            logger.info('writing {value} to {directory}', value=value, directory=self.directory + '/' + file_path)
-            with open(self.directory + '/' + file_path, 'w') as file:
+            relative_file_path = '%s/%s' % (dir_name, file_name)
+            # Put in the in-memory data structures
+            self._add_to_items_and_indexes(chunks, key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
+            # Now put in the file system
+            os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
+            logger.info('writing {value} to {directory}', value=value, directory=self.directory + '/' + relative_file_path)
+            with open(self.directory + '/' + relative_file_path, 'w') as file:
                 json.dump(value, file)
-            self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
-            self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = file_path
-            self._insert_disk(key)
-            self.item_count += 1
-            if ut:
-                self.update_index[ut] = file_name
+            self._insert_disk(key)   # Depends on _key_string_from_blob above
         return
 
     def map_over_matching_data(self, key, since, now):
+        """
+        Sublass dependent fetch, key may vary between classes - for Contacts its a prefix, for Spatial dict its a bounding_box
+        """
         raise NotImplementedError
 
     def __len__(self):
@@ -325,6 +333,9 @@ class ContactDict(FSBackedThreeLevelDict):
         return
 
     def map_over_matching_data(self, key, since, now):
+        """
+        Return file paths that match the prefix and are between the times
+        """
         yield from self._map_over_matching_contacts(key, self.items, since, now)
         return
 
