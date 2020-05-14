@@ -37,7 +37,7 @@ class FSBackedThreeLevelDict:
         return defaultdict(FSBackedThreeLevelDict.dictionary_factory)
 
     def __init__(self, directory):
-        # { AA: { BB: { CC: AABBCCDEF123: (floatingseconds, serialnumber) } } }
+        # { AA: { BB: { CC: AABBCCDEF123: [(floatingseconds, serialnumber)] } } }
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
         self.update_index = {}
