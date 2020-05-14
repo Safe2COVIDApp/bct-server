@@ -30,8 +30,7 @@ class Client:
              some variables will be overwritten with values returned in the init call.
              1 meter at the equator (and we start at 0,0) is approx 0.00001 degree of long
         """
-        # TODO-MITRA - check prefix length - when is it bits and when characters
-        self.prefix_length = 8  # How many characters to use in prefix - see issue#34 for changing this prefix length automatically
+        self.prefix_bits = 64  # How many bits to use in prefix - see issue#34 for changing this prefix length automatically
         self.id_length = 32  # How many characters in hex id. Normally would be 128 bits = 32 chars
         # Distance apart in meters of a GPS report to be considered valid
         # note because rounding to 10meters in location_resolution this needs to be 20 to catch within 10 meters distance
@@ -48,11 +47,11 @@ class Client:
         self.name = name
 
         # Initialize arrays where we remember things
-        self.ids_used = []  # A list of all ids used, these never leave the client except via bluetooth beacon
+        self.ids_used = []  # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
         self.locations = []  # A list of locations this client has been for an epidemiologically significant time
         self.observed_ids = []  # A list of all ids we have seen
         self.location_alerts = []  # A list of alerts sent to us by the server filtered by locations we have been at
-        self.id_alerts = []  # A list of contact ids sent to us by the server filtered by ids_used
+        self.id_alerts = []  # A list of {id, update_token} sent to us by the server filtered by ids_used
 
         # Setup initial status
         self.init_resp = None  # Setup in new_id
@@ -81,21 +80,19 @@ class Client:
         self.bounding_box_minimum_dp = min(self.bounding_box_maximum_dp,
                                            self.init_resp.get('bounding_box_minimum_dp', self.bounding_box_minimum_dp))
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
-        self.prefix_length = self.init_resp.get('prefix_length', self.prefix_length)
+        self.prefix_bits = self.init_resp.get('prefix_bits', self.prefix_bits)
 
     def new_id(self):
         """
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
         self.current_id = "%X" % random.randrange(0, 2 ** 128)
-        self.ids_used.append(self.current_id)
+        self.ids_used.append({"id": self.current_id, "last_used": current_time()})
 
     def move_to(self, loc):
         """
         Manage a new location -
         A real client needs to expire from locations.append if older than 45 days
-        TODO-126A handle time in location
-        TODO-126B expire old locations and ids
         """
         old_location = self.current_location
         if old_location:
@@ -126,7 +123,8 @@ class Client:
         """
         Return a list of prefixes that can be used for /status/scan
         """
-        return [i[:self.prefix_length] for i in self.ids_used]
+        prefix_chars = int(self.prefix_bits/8)
+        return [i['id'][:prefix_chars] for i in self.ids_used]
 
     @staticmethod
     def close_to(other_loc, loc, distance):
@@ -159,8 +157,9 @@ class Client:
         # Record when data is updated till, for our next request
         self.since = json_data.get('until')
 
-        # Record any ids in the poll that match one we have used
-        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.ids_used)])
+        # Record any ids in the poll that match one we have used (id = {id, last_used})
+        ids_to_match = [i['id'] for i in self.ids_used]
+        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in ids_to_match)])
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
@@ -315,7 +314,9 @@ class Client:
         if len(self.locations):
             while self.locations[0].get('end_time') < expiry_time:
                 self.locations.pop(0)
-        # TODO-126B expire ids
+        if len(self.ids_used):
+            while self.ids_used[0].get('last_used') < expiry_time:
+                self.ids_used.pop(0)
 
     def cron15(self):
         """
