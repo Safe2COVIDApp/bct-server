@@ -65,7 +65,6 @@ class FSBackedThreeLevelDict:
         self.item_count = 0
         self.update_index = {}
         # [ (floating_seconds, serial_number)* ] used to order data by time
-        # TODO-DAN is this correct, shouldnt it sort on both floating_seconds and serial_number (though I'm not sure it matters if we consider them the same time)
         self.sorted_list_by_time_and_serial_number = sortedlist(key=lambda key: key[0])
         # { (floating_seconds, serial_number): relative_file_path }
         self.time_and_serial_number_to_file_path_map = {}
@@ -119,13 +118,11 @@ class FSBackedThreeLevelDict:
             for file_name in files:
                 if file_name.endswith('.data'):
                     (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_name(file_name)
-                    # TODO-DAN any reason not to get this from the key ?
                     relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
                     blob = json.load(open('/'.join([root, file_name])))
                     update_token = blob.get('update_token')
-
                     self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
                     self._load_key(key, blob)
         return
