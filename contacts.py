@@ -57,7 +57,6 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # key in UpdatesDict -> bool
 # UpdatesDict[key] -> [blob]
 
-# TODO pass through and add here
 
 class FSBackedThreeLevelDict:
 
@@ -66,7 +65,7 @@ class FSBackedThreeLevelDict:
         return defaultdict(FSBackedThreeLevelDict.dictionary_factory)
 
     def __init__(self, directory):
-        # { AA: { BB: { CC: AABBCCDEF123: [(floatingseconds, serialnumber)] } } }
+        # { AA: { BB: { CC: AABBCCDEF123: [(floating_seconds, serial)] } } }
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
         self.update_index = {}
@@ -181,7 +180,7 @@ class FSBackedThreeLevelDict:
         serial_number -- int 
         """
         if key is None:
-            key = self._key_string_from_blob(value) # On Spatial dict Implicitly does a make_key allowing _insert_disk to work below
+            key = self._key_string_from_blob(value)  # On Spatial dict Implicitly does a make_key allowing _insert_disk to work below
         # we are NOT going to read multiple things from the file system for performance reasons
         # if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
@@ -205,14 +204,6 @@ class FSBackedThreeLevelDict:
                 json.dump(value, file)
             self._insert_disk(key)   # Depends on _key_string_from_blob above
         return
-
-    def map_over_matching_data(self, key, since, now):
-        """
-        Sublass dependent fetch,
-        key may vary between classes - for Contacts its a prefix, for Spatial dict its a bounding_box
-        returns list of relative file_paths [ 'AA/BB/CC/AABBCC1234.data' ]
-        """
-        raise NotImplementedError
 
     def __len__(self):
         return self.item_count
@@ -463,7 +454,7 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         directory = directory + subdir
         super().__init__(directory)
 
-    def _insert_disk(self, key): # Not required
+    def _insert_disk(self, key):  # Not required
         return
 
     def map_over_matching_data(self, key, since, now):
@@ -491,6 +482,7 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         self.move_data_by_key_to_deletion(key)
 
 
+# noinspection PyAbstractClass
 class UpdatesDict(SimpleFSBackedDict):
     # key is update_token
     # Blob is { status, ... }
@@ -637,7 +629,6 @@ class Contacts:
                 'error': "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (
                     self.bb_max_size, self.bb_min_dp)
             }
-        ret = {}
         if not since:
             since = "1970-01-01T01:01Z"
 
@@ -667,7 +658,6 @@ class Contacts:
         since = unix_time_from_iso(since_string)
         number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
         return self._status_or_sync(None, None, since, now, number_to_return)
-
 
     def _status_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
         """
