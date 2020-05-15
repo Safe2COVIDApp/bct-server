@@ -153,19 +153,6 @@ class FSBackedThreeLevelDict:
         """
         return
 
-    def _make_key(self, key):
-        """ 
-        _make_key is defined in the subclass and returns a unique string
-        (should be over 6 characters, but long enough to avoid collisions)
-        that can be used to index into the three level filesystem
-
-        Parameters:
-        ----------
-        self -- FSBackedThreeLevelDict
-        key  -- the object that needs to be turned into the string
-        """
-        raise NotImplementedError
-
     def _insert_disk(self, key):
         """
         _insert_disk does subclass dependent insertion into both memory and filesystem
@@ -242,14 +229,10 @@ class FSBackedThreeLevelDict:
 
     def _delete(self, file_path):
         logger.info("deleting {file_path}", file_path=file_path)
-
         blob = self.retrieve_json_from_file_path(file_path)
-
         update_token = blob.get('update_token')
         if update_token:
             del self.update_index[update_token]
-        # TODO-DAN there is no "key" defined,
-        self._remove_key(key, blob)
         os.remove(self.directory + "/" + file_path)
         return
 
@@ -293,7 +276,6 @@ class FSBackedThreeLevelDict:
             (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_name(file_name)
             bottom_level = self.get_bottom_level_from_key(key)
             bottom_level[key].remove(item)
-            # TODO-DAN shouldn't this next line be "file_path", just checking rather than fixing myself
             self.file_paths_to_delete.append(file_path)
             del self.time_and_serial_number_to_file_path_map[item]
             self.item_count -= 1
@@ -324,10 +306,6 @@ class FSBackedThreeLevelDict:
         else:
             return False
 
-
-# TODO-DAN it complains class ContactDict must implement all abstract methods
-# MITRA -- what is 'it'?
-# TODO-DAN code inspection on my IDE
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -407,11 +385,17 @@ class SpatialDict(FSBackedThreeLevelDict):
     # _remove_key is unnecessary, there might be other data at this point, and doesnt hurt to leave extra points in place
 
     def _make_key(self, key_tuple):
-        """
+        """ 
         Return key string from lat,long
 
-        :param key_tuple: (float lat, float long)
-        :return:
+        returns a unique string (should be over 6 characters, but long enough to avoid collisions)
+        that can be used to index into the three level filesystem
+
+        Parameters:
+        ----------
+        self      -- FSBackedThreeLevelDict
+        key_tuple -- (float lat, float long)
+
         """
         key_string = self.keys.get(key_tuple)
         if not key_string:
@@ -513,10 +497,9 @@ class UpdatesDict(SimpleFSBackedDict):
 
 # for an id "DEADBEEF", the in memory version is stored in self.ids in the element
 # self.ids['DE']['AD']['BE']["DEADBEEF']  for the disk version is is store in a four
-# level directory structure rooted at config['directory'] in 'DE/AD/BE/DEADBEEF.[DATE].[PSEUDORANDOM].data'
-# [DATE] is the date it gets entered in the system
-# TODO-DAN is this still correct, i thought pseudorandom had gone?
-# [PSEUDORANDOM] is used to differential contacts with the same ID that come in at the same time
+# level directory structure rooted at config['directory'] in 'DE/AD/BE/DEADBEEF.[FLOATING_TIME].[SERIAL_NUMBER].data'
+# [FLOATING_TIME] is the floating number of seconds since the epoch 
+# [SERIAL_NUMBER] is a unique serial number for multiple items that might come in at the same time
 # (accuracy is to minutes).  The date strings are 'YYYYMMDDHHmm'
 
 registry = {}
