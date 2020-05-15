@@ -275,15 +275,12 @@ def delete_expired_data():
     deferred.addErrback(delete_expired_data_failure)
     return
 
-
 if 0 != len(servers):
     l1 = task.LoopingCall(get_data_from_neighbors)
-
     l1.start(float(config.get('neighbor_sync_period', 600.0)))
 
 l2 = task.LoopingCall(delete_expired_data)
-# l2.start(24*60*60)
-l2.start(10)
+l2.start(24*60*60)
 
 site = twserver.Site(Simple())
 reactor.listenTCP(int(config.get('port', 8080)), site)

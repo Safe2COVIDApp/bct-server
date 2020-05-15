@@ -37,13 +37,20 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # blob = {...} the data object stored at each point
 # key_tuple = (float lat, float long)
 # key_string = Random string
+# floating_seconds = 12345678.12345 floating point seconds since the epoch
+# serial = 123 incremented for each point at floating_seconds
+# floating_seconds_and_serial = (floating_seconds, serial) usually passed around together without copying.
+# bounding_box = { maxLat, maxLong, minLat, minLong }
 
 # == And Some Short cuts ....
 # FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
-# DICT.get_bottom_level_from_key(key) -> { key: [(floating_seconds, serial)]}
+# DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_andserial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
+# DICT.retrieve_json_from_file_name(file_name) -> blob
+# DICT.retrieve_json_from_time_and_serial(floating_seconds_and_serial) -> blob
+# DICT.time_and_serial_number_to_file_path_map[floating_seconds_and_serial] -> file_path
 # ContactDict._key_string_from_blob(blob) -> blob['id']
 # SpatialDict._key_string_from_blob(blob) -> key_string
 # SpatialDict._key_tuple_from_blob(blob) -> key_tuple
@@ -227,6 +234,10 @@ class FSBackedThreeLevelDict:
             yield self.retrieve_json_from_file_path(file_path)
         return
 
+    # Not used - as want to access file system in one thread and data in main thread
+    #def retrieve_json_from_time_and_serial(self, floating_seconds_and_serial):
+    #    return self.retrieve_json_from_file_path(time_and_serial_number_to_file_path_map[floating_seconds_and_serial])
+
     def _delete(self, file_path):
         logger.info("deleting {file_path}", file_path=file_path)
         blob = self.retrieve_json_from_file_path(file_path)
@@ -321,6 +332,9 @@ class ContactDict(FSBackedThreeLevelDict):
         return
 
     def _map_over_matching_contacts(self, prefix, ids, since, now, start_pos=0):
+        """
+        returns iter [ floating_time_and_serial ]
+        """
         logger.info('_map_over_matching_contacts called with {prefix}, {keys}', prefix=prefix, keys=ids.keys())
         if start_pos < 6:
             this_prefix = prefix[start_pos:]
@@ -340,23 +354,25 @@ class ContactDict(FSBackedThreeLevelDict):
                         yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
         else:
             for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
-                for (floating_time, serial_number) in ids[contact_id]:
-                    if _good_date(floating_time, since, now):
-                        # TODO-DAN is it ever the case that serial_number is None ?
-                        if serial_number is None:
-                            # no serial number
-                            file_name = '%s:%f.data' % (contact_id, floating_time)
-                        else:
-                            file_name = '%s:%f:%d.data' % (contact_id, floating_time, serial_number)
-                        yield FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
+                for floating_time_and_serial in ids[contact_id]:
+                    if _good_date(floating_time_and_serial[0], since, now):
+                        yield floating_time_and_serial
         return
 
-    def map_over_matching_data(self, key, since, now):
+    def map_over_prefixes(self, prefixes, since, now):
         """
         Return relative file paths that match the prefix and are between the times
+        If no prefix is provided then can shortcut by using the sorted_list_by_time_and_serial_number BUT returns (floating_point_seconds, serial)
         """
-        yield from self._map_over_matching_contacts(key, self.items, since, now)
-        return
+        if prefixes is None:
+            l = self.sorted_list_by_time_and_serial_number
+            # TODO-DAN TODO-120 this feels wrong but cant find alternative that works
+            yield from iter(l[l.bisect_left((since, 0)):l.bisect_left((now, 0))])
+            return
+        else:
+            for prefix in prefixes:
+                yield from self._map_over_matching_contacts(prefix, self.items, since, now)
+            return
 
     def _key_string_from_blob(self, blob):
         return blob.get('id')
@@ -421,18 +437,20 @@ class SpatialDict(FSBackedThreeLevelDict):
         return self.spatial_index.bounds
 
     # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
-    # return relative file paths to data inside that bounding box
-    def map_over_matching_data(self, key, since, now):
-        for obj in self.spatial_index.intersection(key, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
-            key = obj.object
-            for (floating_time, serial_number) in self.get_bottom_level_from_key(key)[key]:
-                if _good_date(floating_time, since, now):
-                    if serial_number is None:
-                        # no serial number
-                        file_name = '%s:%f.data' % (key, floating_time)
-                    else:
-                        file_name = '%s:%f:%d.data' % (key, floating_time, serial_number)
-                    yield FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
+    # return floating_time_and_serial
+    def map_over_bounding_boxes(self, bounding_boxes, since, now):
+        if bounding_boxes is None:
+            l = self.sorted_list_by_time_and_serial_number
+            # TODO-DAN TODO-120 this feels wrong but cant find alternative that works
+            yield from iter(l[l.bisect_left((since, 0)):l.bisect_left((now, 0))])
+            return
+        else:
+            for bounding_box in bounding_boxes:
+                for obj in self.spatial_index.intersection(bounding_box, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
+                    key = obj.object
+                    for floating_time_and_serial in self.get_bottom_level_from_key(key)[key]:
+                        if _good_date(floating_time_and_serial[0], since, now):
+                            yield floating_time_and_serial
         return
 
     def _key_string_from_blob(self, blob):
@@ -534,6 +552,7 @@ class Contacts:
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = UpdatesDict(self.directory_root)
         # self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
+        # See issue#
         self.statistics = {}
         for k in init_statistics_fields:
             self.statistics[k] = 0
@@ -569,7 +588,7 @@ class Contacts:
         repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
         return self.send_or_sync(data, repeated_fields)
 
-    # Common part of both /status/send and
+    # Common part of both /status/send and sync reception
     def send_or_sync(self, data, repeated_fields):
         floating_seconds = current_time()
         serial_number = 0
@@ -632,39 +651,16 @@ class Contacts:
         if not since:
             since = "1970-01-01T01:01Z"
 
-        ret['since'] = since
         since = unix_time_from_iso(since)
         prefixes = data.get('contact_prefixes')
-        if prefixes:
-            contact_file_paths = []
-            for prefix in prefixes:
-                contact_file_paths += self.contact_dict.map_over_matching_data(prefix, since, now)
-            logger.info('contact file_paths = {file_paths}', file_paths=contact_file_paths)
-
-            def get_contact_id_data():
-                return list(self.contact_dict.retrieve_json_from_file_paths(contact_file_paths))
-
-            ret['contact_ids'] = get_contact_id_data
 
         # Find any reported locations, inside the requests bounding box.
         # { locations: [ { min_lat...} ] }
-        req_locations = data.get('locations')
-        if req_locations:
-            spatial_file_paths = []
-            for bounding_box in req_locations:
-                spatial_file_paths += self.spatial_dict.map_over_matching_data((bounding_box['min_lat'],
-                                                                                bounding_box['min_long'],
-                                                                                bounding_box['max_lat'],
-                                                                                bounding_box['max_long']), since, now)
-
-            logger.info('spatial file_paths = {file_paths}', file_paths=spatial_file_paths)
-
-            def get_location_id_data():
-                return list(self.spatial_dict.retrieve_json_from_file_paths(spatial_file_paths))
-
-            ret['locations'] = get_location_id_data
-        ret['until'] = iso_time_from_seconds_since_epoch(now)
-        return ret
+        req_locations = data.get('locations')  # None | [{min_lat, min_long, max_lat, max_long}]
+        bounding_boxes = map(lambda l: (l['min_lat'], l['min_long'], l['max_lat'], l['max_long']),
+                             req_locations) if req_locations else None
+        number_to_return = int(self.config.get('MAX_SCAN_COUNT', 50))
+        return self._status_or_sync(prefixes, bounding_boxes, since, now, number_to_return)
 
     # sync get
     @register_method(route='/sync')
@@ -679,20 +675,23 @@ class Contacts:
             since_string = "1970-01-01T01:01Z"
 
         since = unix_time_from_iso(since_string)
+        number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
+        return self._status_or_sync(None, None, since, now, number_to_return)
+
+
+    def _status_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
 
         # correlate the two dictionaries
         # list of (timecode, serial_number, listL_type) between since and until
         data = sortedlist(key=lambda k: k[0])
-        for the_dict in self.map_over_dicts():
-            current_list = the_dict.sorted_list_by_time_and_serial_number
-            data.update(map(lambda item: (item[0], item[1], the_dict), current_list[current_list.bisect_left((since, 0)):current_list.bisect_left((now, 0))]))
-            
+        data.update(map(lambda item: (item[0], item[1], self.contact_dict), self.contact_dict.map_over_prefixes(prefixes, since, now)))
+        data.update(map(lambda item: (item[0], item[1], self.spatial_dict), self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
+
         length = len(data)
-        number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
 
         # create a dict index by either contact_dict or spatial_dict
-        lists_to_return = {self.contact_dict: [],
-                           self.spatial_dict: []}
+        lists_to_return = {self.contact_dict: [],  # file_paths
+                           self.spatial_dict: []}  # file_paths
         # truncate the list
 
         truncated_data = data[0:min(length, number_to_return)]
@@ -700,10 +699,10 @@ class Contacts:
             the_dict = datum[2]
             lists_to_return[datum[2]].append(the_dict.time_and_serial_number_to_file_path_map[(datum[0], datum[1])])
             
-        contacts = lists_to_return[self.contact_dict]
-        locations = lists_to_return[self.spatial_dict]
+        contacts = lists_to_return[self.contact_dict]  # file_paths
+        locations = lists_to_return[self.spatial_dict]  # file_paths
         
-        ret = {'since': since_string,
+        ret = {'since': iso_time_from_seconds_since_epoch(since),
                'more_data': number_to_return < length}
         if ret['more_data']:
             latest_time = data[number_to_return][0]
@@ -716,11 +715,15 @@ class Contacts:
                 return list(self.contact_dict.retrieve_json_from_file_paths(contacts))
 
             ret['contact_ids'] = get_contact_id_data
+        else:
+            ret['contact_ids'] = []
         if 0 != len(locations):
             def get_location_id_data():
                 return list(self.spatial_dict.retrieve_json_from_file_paths(locations))
 
             ret['locations'] = get_location_id_data
+        else:
+            ret['locations'] = []
         return ret
 
     # admin_config get
@@ -742,7 +745,7 @@ class Contacts:
         }
         return ret
 
-    # init post
+    # POST /init
     @register_method(route='/init')
     def init(self, data, args):
         for k in init_statistics_fields:
