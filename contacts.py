@@ -46,10 +46,9 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
-# DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_andserial]}
+# DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
 # DICT.retrieve_json_from_file_name(file_name) -> blob
-# DICT.retrieve_json_from_time_and_serial(floating_seconds_and_serial) -> blob
 # DICT.time_and_serial_number_to_file_path_map[floating_seconds_and_serial] -> file_path
 # ContactDict._key_string_from_blob(blob) -> blob['id']
 # SpatialDict._key_string_from_blob(blob) -> key_string
@@ -233,10 +232,6 @@ class FSBackedThreeLevelDict:
         for file_path in file_paths:
             yield self.retrieve_json_from_file_path(file_path)
         return
-
-    # Not used - as want to access file system in one thread and data in main thread
-    #def retrieve_json_from_time_and_serial(self, floating_seconds_and_serial):
-    #    return self.retrieve_json_from_file_path(time_and_serial_number_to_file_path_map[floating_seconds_and_serial])
 
     def _delete(self, file_path):
         logger.info("deleting {file_path}", file_path=file_path)
@@ -552,7 +547,7 @@ class Contacts:
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = UpdatesDict(self.directory_root)
         # self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
-        # See issue#
+        # See TODO-76 re saving statistics
         self.statistics = {}
         for k in init_statistics_fields:
             self.statistics[k] = 0
@@ -680,9 +675,15 @@ class Contacts:
 
 
     def _status_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
-
+        """
+        Common part of /status/sync and /sync
+        returns data structure suitable for Response { contact_ids, locations, since, until, more_data }
+        Data contains at most number_to_return oldest data
+        If there is too much data, then more_data=True, and until is the floating_seconds of the next item to return
+        Note there might be an issue if there are two items with the same floating_seconds (different serial numbers) but we dedupe on arrival anyway
+        """
         # correlate the two dictionaries
-        # list of (timecode, serial_number, listL_type) between since and until
+        # sorted list of (timecode, serial_number, listL_type) between since and until
         data = sortedlist(key=lambda k: k[0])
         data.update(map(lambda item: (item[0], item[1], self.contact_dict), self.contact_dict.map_over_prefixes(prefixes, since, now)))
         data.update(map(lambda item: (item[0], item[1], self.spatial_dict), self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
