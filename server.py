@@ -22,8 +22,8 @@ from lib import set_current_time_for_testing
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
                     help='config file name, if an http url then the config file contents are fetched over http')
-args = parser.parse_args()
 
+parsed_args = parser.parse_args()
 
 # self_string is used for syncing from neighbors, to ignore a sync from ourself
 self_string = uuid.uuid4().hex
@@ -32,11 +32,11 @@ self_string = uuid.uuid4().hex
 # read config file, potentially looking for recursive config files
 def get_config():
     conf = configparser.ConfigParser()
-    if 'http' == urllib.parse.urlparse(args.config_file).scheme[0:4].lower():
-        contents = urllib.request.urlopen(args.config_file).read().decode()
+    if 'http' == urllib.parse.urlparse(parsed_args.config_file).scheme[0:4].lower():
+        contents = urllib.request.urlopen(parsed_args.config_file).read().decode()
         conf.read_string(contents)
     else:
-        conf.read(args.config_file)
+        conf.read(parsed_args.config_file)
     return conf
 
 
@@ -53,7 +53,7 @@ def receive_signal(signal_number, frame):
         logger.info('Testing is set')
         try:
             contacts.reset()
-        except:  # TODO should really say what exceptions expecting
+        except:  
             logger.failure('error resetting, exiting')
             reactor.stop()
     return
@@ -96,7 +96,6 @@ logger.info('starting server')
 try:
     servers = json.load(open(servers_file_path))
     logger.info('read last read date from server neighbors from {servers_file_path}', servers_file_path=servers_file_path)
-# TODO-DAN, code inspector didn't like the broad exception, and a test showed its FileNotFoundError, are you expecting other errors here ?
 except FileNotFoundError as err:
     servers = {}
 if config.get('servers'):
@@ -121,7 +120,7 @@ def deferred_function(function):
 def resolve_all_functions(ret, request):
     """
     resolve_all_functions goes through the dictionary ret looking for any values that are functions, if there are, then
-    it runs the function in a deferred thread with request, the key for that value and the dictionary as args.  
+    it runs the function in a deferred thread with request, the key for that value and the dictionary as args
     After the thread runs successfully the result of the function replaces the function value in the dictionary and we
     iterate until all have been resolved
     """
@@ -180,7 +179,7 @@ class Simple(resource.Resource):
         else:
             data = request.content.read()
         logger.info('request content: {data}', data=data)
-        # TODO-DAN code checker says this is shadowing outer-level "args" are you intending to overwrite that variable, and if not maybe rename here ?
+
         args = {k.decode(): [item for item in v] for k, v in request.args.items()}
 
         path = request.path.decode()
@@ -279,8 +278,8 @@ def delete_expired_data():
 
 if 0 != len(servers):
     l1 = task.LoopingCall(get_data_from_neighbors)
-    # TODO-DAN Should this be getfloat ?
-    l1.start(int(config.get('neighbor_sync_period', 600.0)))
+
+    l1.start(float(config.get('neighbor_sync_period', 600.0)))
 
 l2 = task.LoopingCall(delete_expired_data)
 # l2.start(24*60*60)
