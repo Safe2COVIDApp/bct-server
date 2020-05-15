@@ -92,12 +92,7 @@ class FSBackedThreeLevelDict:
         parts = simple_file_name.split(':')
         key = parts[0]
         floating_seconds = float(parts[1])
-        # TODO-DAN is serial_number ever None ?
-        if 2 == len(parts):
-            # -1 means that it is an old style file name
-            serial_number = None
-        else:
-            serial_number = int(parts[2])
+        serial_number = int(parts[2])
         return key, floating_seconds, serial_number
 
     def _add_to_items(self, key, floating_seconds_and_serial_number):
