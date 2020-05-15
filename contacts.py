@@ -86,12 +86,7 @@ class FSBackedThreeLevelDict:
         parts = simple_file_name.split(':')
         key = parts[0]
         floating_seconds = float(parts[1])
-        # TODO-DAN is serial_number ever None ?
-        if 2 == len(parts):
-            # -1 means that it is an old style file name
-            serial_number = None
-        else:
-            serial_number = int(parts[2])
+        serial_number = int(parts[2])
         return key, floating_seconds, serial_number
 
     def _add_to_items(self, key, floating_seconds_and_serial_number):
@@ -342,12 +337,7 @@ class ContactDict(FSBackedThreeLevelDict):
             for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
                 for (floating_time, serial_number) in ids[contact_id]:
                     if _good_date(floating_time, since, now):
-                        # TODO-DAN is it ever the case that serial_number is None ?
-                        if serial_number is None:
-                            # no serial number
-                            file_name = '%s:%f.data' % (contact_id, floating_time)
-                        else:
-                            file_name = '%s:%f:%d.data' % (contact_id, floating_time, serial_number)
+                        file_name = '%s:%f:%d.data' % (contact_id, floating_time, serial_number)
                         yield FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
         return
 
@@ -427,11 +417,7 @@ class SpatialDict(FSBackedThreeLevelDict):
             key = obj.object
             for (floating_time, serial_number) in self.get_bottom_level_from_key(key)[key]:
                 if _good_date(floating_time, since, now):
-                    if serial_number is None:
-                        # no serial number
-                        file_name = '%s:%f.data' % (key, floating_time)
-                    else:
-                        file_name = '%s:%f:%d.data' % (key, floating_time, serial_number)
+                    file_name = '%s:%f:%d.data' % (key, floating_time, serial_number)
                     yield FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
         return
 
