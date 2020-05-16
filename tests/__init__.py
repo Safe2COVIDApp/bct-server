@@ -100,18 +100,20 @@ class Server:
         return resp.json()
 
     def reset(self, delete_files=True):
-        logger.info('sending signal to server')
-        if delete_files:
-            for file_name in os.listdir(self.directory):
-                file_path = os.path.join(self.directory, file_name)
-                if os.path.isfile(file_path) and (file_name not in ['log.txt']):
-                    logger.info('file path is %s' % file_path)
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-        # os.kill(76617, SIGUSR1)
-        self.proc.send_signal(SIGUSR1)
-        logger.info('sent signal to server')
+        # only really do reset if proc exists
+        if self.proc:
+            logger.info('sending signal to server')
+            if delete_files:
+                for file_name in os.listdir(self.directory):
+                    file_path = os.path.join(self.directory, file_name)
+                    if os.path.isfile(file_path) and (file_name not in ['log.txt']):
+                        logger.info('file path is %s' % file_path)
+                        os.unlink(file_path)
+                    elif os.path.isdir(file_path):
+                        shutil.rmtree(file_path)
+            # os.kill(76617, SIGUSR1)
+            self.proc.send_signal(SIGUSR1)
+            logger.info('sent signal to server')
         return
 
     def get_data_from_id(self, contact_id, dict_type='contact_dict'):
@@ -149,12 +151,10 @@ def get_free_port():
 
 # this can be run as a primary server or a secondary one syncing from a primary one
 #
-# TODO-DAN note that currently uncommenting one line ignores the server created here and talks to a specific other server,
-# TODO-DAN I'm sure that much of this could be bypassed in that case, but I am not sure how as it passes proc and tmp_dir_name to Server()
-def run_server(server_urls=None, port=None):
-    # setup server
-    # yield Server('http://localhost:%s' % 8080, None, '/Users/dan/tmp')
-    # return
+def run_server(server=None, server_urls=None, port=None):
+    if server:
+        yield Server(server, None, None)
+        return
     if not port:
         port = get_free_port()
     with TemporaryDirectory() as tmp_dir_name:
