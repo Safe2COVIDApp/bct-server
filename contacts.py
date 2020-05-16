@@ -413,18 +413,12 @@ class SpatialDict(FSBackedThreeLevelDict):
     # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
     # return floating_time_and_serial
     def map_over_bounding_boxes(self, bounding_boxes, since, now):
-        if bounding_boxes is None:
-            l = self.sorted_list_by_time_and_serial_number
-            # TODO-DAN TODO-120 this feels wrong but cant find alternative that works
-            yield from iter(l[l.bisect_left((since, 0)):l.bisect_left((now, 0))])
-            return
-        else:
-            for bounding_box in bounding_boxes:
-                for obj in self.spatial_index.intersection(bounding_box, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
-                    key = obj.object
-                    for floating_time_and_serial in self.get_bottom_level_from_key(key)[key]:
-                        if _good_date(floating_time_and_serial[0], since, now):
-                            yield floating_time_and_serial
+        for bounding_box in bounding_boxes:
+            for obj in self.spatial_index.intersection(bounding_box, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
+                key = obj.object
+                for floating_time_and_serial in self.get_bottom_level_from_key(key)[key]:
+                    if _good_date(floating_time_and_serial[0], since, now):
+                        yield floating_time_and_serial
         return
 
     def _key_string_from_blob(self, blob):
@@ -663,12 +657,19 @@ class Contacts:
         # correlate the two dictionaries
         # sorted list of (timecode, serial_number, listL_type) between since and until
         data = sortedlist(key=lambda k: k[0])
-        if prefixes:
-            data.update(map(lambda item: (item[0], item[1], self.contact_dict), self.contact_dict.map_over_prefixes(prefixes, since, now)))
+        if prefixes is None:
+            data.update(map(lambda item: (item[0], item[1], self.contact_dict),
+                            self.contact_dict.map_over_prefixes(prefixes, since, now)))
+        else:
+            l = self.contact_dict.sorted_list_by_time_and_serial_number
+            data.update(map(lambda item: (item[0], item[1], self.contact_dict),
+                            l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
+        if bounding_boxes is None:
+            data.update(map(lambda item: (item[0], item[1], self.spatial_dict),
+                            self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
         else:
             l = self.contact_dict.sorted_list_by_time_and_serial_number
             data.update(map(lambda item: (item[0], item[1], self.contact_dict), l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
-        data.update(map(lambda item: (item[0], item[1], self.spatial_dict), self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
 
         length = len(data)
 
