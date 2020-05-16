@@ -607,7 +607,7 @@ class Contacts:
     # scan_status post
     @register_method(route='/status/scan')
     def scan_status(self, data, args):
-        since = data.get('since')
+        since_string = data.get('since')
         now = current_time()
         req_locations = data.get('locations', [])
         if not self.check_bounding_box(req_locations):
@@ -616,10 +616,10 @@ class Contacts:
                 'error': "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (
                     self.bb_max_size, self.bb_min_dp)
             }
-        if not since:
-            since = "1970-01-01T01:01Z"
 
-        since = unix_time_from_iso(since)
+        earliest_allowed = self.config.getint('DAYS_OLDEST_DATA_SENT', 21) * 24 * 60 * 60
+        since = max(unix_time_from_iso(since_string) if since_string else 1, earliest_allowed)
+
         prefixes = data.get('contact_prefixes')
 
         # Find any reported locations, inside the requests bounding box.
@@ -637,12 +637,10 @@ class Contacts:
         # Do this at the start of the process, we want to guarantee have all before this time (even if multi-threading)
         now = current_time()
         since_string = args.get('since')
-        if since_string:
-            since_string = since_string[0].decode()
-        else:
-            since_string = "1970-01-01T01:01Z"
 
-        since = unix_time_from_iso(since_string)
+        # TODO-DAN what is since_string[0].decode ?
+        earliest_allowed = self.config.getint('DAYS_OLDEST_DATA_SENT', 21) * 24 * 60 * 60
+        since = max(unix_time_from_iso(since_string[0].decode()) if since_string else 1, earliest_allowed)
         number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
         return self._status_or_sync(None, None, since, now, number_to_return)
 
