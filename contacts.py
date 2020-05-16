@@ -573,7 +573,7 @@ class Contacts:
         return {"status": "ok"}
 
     def _update(self, update_token, updates, floating_time, serial_number):
-        for this_dict in [self.contact_dict, self.spatial_dict]
+        for this_dict in self.contact_dict, self.spatial_dict:
             this_dict.update(update_token, updates, floating_time, serial_number)
 
     # status_update POST
