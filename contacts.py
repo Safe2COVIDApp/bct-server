@@ -767,18 +767,13 @@ class Contacts:
                 return False
         return True
 
-    def map_over_dicts(self):
-        for the_dict in [self.contact_dict, self.spatial_dict, self.unused_update_tokens]:
-            yield the_dict
-        return
-
     def move_expired_data_to_deletion_list(self):
         until = current_time() - self.config.getint('expire_data', 45) * 24 * 60 * 60
-        for the_dict in self.map_over_dicts():
+        for the_dict in [self.contact_dict, self.spatial_dict, self.unused_update_tokens]:
             the_dict.move_expired_data_to_deletion_list(0, until)
         return
 
     def delete_from_deletion_list(self):
-        for the_dict in self.map_over_dicts():
+        for the_dict in [self.contact_dict, self.spatial_dict, self.unused_update_tokens]:
             the_dict.delete_from_deletion_list()
         return
