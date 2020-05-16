@@ -33,16 +33,16 @@ def test_sync():
             resp_2_2 = server_2.sync()
             resp_2_2_data = resp_2_2.json()
     assert resp_1_1.status_code == 200
-    assert 'contact_ids' not in resp_1_1_data
+    assert 'contact_ids' not in resp_1_1_data or len(resp_1_1_data.get('contact_ids')) == 0
     assert resp_2_1.status_code == 200
-    assert 'contact_ids' not in resp_2_1_data
+    assert 'contact_ids' not in resp_2_1_data or len(resp_2_1_data.get('contact_ids')) == 0
 
     # all_contacts = sort_list_of_dictionaries(json_data_1 + json_data_2)
 
     all_contacts1_2 = copy.deepcopy(json_data_1 + json_data_2)
     all_contacts1_2[1]['path'] = [server_url2]
-    assert 'contact_ids' in resp_1_2_data
-    assert 'contact_ids' in resp_2_2_data
+    assert 'contact_ids' in resp_1_2_data and len(resp_1_2_data.get('contact_ids')) > 0
+    assert 'contact_ids' in resp_2_2_data and len(resp_2_2_data.get('contact_ids')) > 0
     # This test wont work - it cant compare "path:[...]" BUT its not equal anyway
     assert [i["id"] for i in resp_1_2_data['contact_ids']] == ["123456789", "987654321"]
     assert resp_1_2_data['contact_ids'][1]['path'][0] == server_url2
