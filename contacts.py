@@ -657,19 +657,19 @@ class Contacts:
         # correlate the two dictionaries
         # sorted list of (timecode, serial_number, listL_type) between since and until
         data = sortedlist(key=lambda k: k[0])
-        if prefixes is None:
+        if prefixes is not None:
             data.update(map(lambda item: (item[0], item[1], self.contact_dict),
                             self.contact_dict.map_over_prefixes(prefixes, since, now)))
         else:
             l = self.contact_dict.sorted_list_by_time_and_serial_number
             data.update(map(lambda item: (item[0], item[1], self.contact_dict),
                             l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
-        if bounding_boxes is None:
+        if bounding_boxes is not None:
             data.update(map(lambda item: (item[0], item[1], self.spatial_dict),
                             self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
         else:
-            l = self.contact_dict.sorted_list_by_time_and_serial_number
-            data.update(map(lambda item: (item[0], item[1], self.contact_dict), l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
+            l = self.spatial_dict.sorted_list_by_time_and_serial_number
+            data.update(map(lambda item: (item[0], item[1], self.spatial_dict), l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
 
         length = len(data)
 
