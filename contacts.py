@@ -343,17 +343,10 @@ class ContactDict(FSBackedThreeLevelDict):
     def map_over_prefixes(self, prefixes, since, now):
         """
         Return relative file paths that match the prefix and are between the times
-        If no prefix is provided then can shortcut by using the sorted_list_by_time_and_serial_number BUT returns (floating_point_seconds, serial)
         """
-        if prefixes is None:
-            l = self.sorted_list_by_time_and_serial_number
-            # TODO-DAN TODO-120 this feels wrong but cant find alternative that works
-            yield from iter(l[l.bisect_left((since, 0)):l.bisect_left((now, 0))])
-            return
-        else:
-            for prefix in prefixes:
-                yield from self._map_over_matching_contacts(prefix, self.items, since, now)
-            return
+        for prefix in prefixes:
+            yield from self._map_over_matching_contacts(prefix, self.items, since, now)
+        return
 
     def _key_string_from_blob(self, blob):
         return blob.get('id')
@@ -670,7 +663,11 @@ class Contacts:
         # correlate the two dictionaries
         # sorted list of (timecode, serial_number, listL_type) between since and until
         data = sortedlist(key=lambda k: k[0])
-        data.update(map(lambda item: (item[0], item[1], self.contact_dict), self.contact_dict.map_over_prefixes(prefixes, since, now)))
+        if prefixes:
+            data.update(map(lambda item: (item[0], item[1], self.contact_dict), self.contact_dict.map_over_prefixes(prefixes, since, now)))
+        else:
+            l = self.contact_dict.sorted_list_by_time_and_serial_number
+            data.update(map(lambda item: (item[0], item[1], self.contact_dict), l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
         data.update(map(lambda item: (item[0], item[1], self.spatial_dict), self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
 
         length = len(data)
