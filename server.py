@@ -22,6 +22,8 @@ from lib import set_current_time_for_testing
 parser = argparse.ArgumentParser(description='Run bct server.')
 parser.add_argument('--config_file', default='config.ini',
                     help='config file name, if an http url then the config file contents are fetched over http')
+parser.add_argument('--log_level', 
+                    help='logging level', choices=['debug', 'info', 'warn', 'error', 'critical'])
 
 parsed_args = parser.parse_args()
 
@@ -75,7 +77,8 @@ def reset_log_file():
     if log_observer:
         print('removing log observer')
         globalLogPublisher.removeObserver(log_observer)
-    info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(config['log_level'].lower()))
+    log_level = parsed_args.log_level or config['log_level']
+    info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(log_level.lower()))
     if mlog_file_path:
         mlog_file = open(mlog_file_path, 'a+')
     else:

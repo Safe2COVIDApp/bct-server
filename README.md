@@ -36,7 +36,7 @@ Either run the Dockerfile from this repo, or run from the docker repository once
 1. install requirements (pip install -r requirements.txt)
 2. copy sample_config.ini to config.ini
 3. edit config.ini
-4. ``python server.py [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
+4. ``python server.py [--config_file CONFIG-FILE] [--log_level LOG-LEVEL]`` (if CONFIG-FILE is an http url, then it is fetched over the net, LOG_LEVEL overrides the logging level in the config file))
 
 # testing client
 On Ubuntu
@@ -54,8 +54,9 @@ PYTHON_BIN=python3 pytest tests
 Pytest temporarily creates a server to test against, to test against a separate server instance try:
 ```
 python server.py --config_file sample_global_config.ini
-pytest --server=http://localhost:8080 tests/test_pseudoclient.py
+pytest --server=http://localhost:8080 --log_level warn tests/test_pseudoclient.py
 ```
+log_level can be any of 'debug', 'info', 'warn', 'error', 'critical' and overrides whatever the config file says
 
 # trying client
 
