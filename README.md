@@ -36,7 +36,7 @@ Either run the Dockerfile from this repo, or run from the docker repository once
 1. install requirements (pip install -r requirements.txt)
 2. copy sample_config.ini to config.ini
 3. edit config.ini
-4. ``python server.py [--config_file CONFIG-FILE]`` (if CONFIG-FILE is an http url, then it is fetched over the net)
+4. ``python server.py [--config_file CONFIG-FILE] [--log_level LOG-LEVEL]`` (if CONFIG-FILE is an http url, then it is fetched over the net, LOG_LEVEL overrides the logging level in the config file))
 
 # testing client
 On Ubuntu
