@@ -222,8 +222,8 @@ def sync_body(body, remote_server):
     return
 
 
-def sync_error(message):
-    logger.error(message)
+def sync_error(failure):
+    logger.error("Error in connecting to server '{value}'", value = failure.value)
     return
 
 
