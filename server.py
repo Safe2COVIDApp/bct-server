@@ -201,7 +201,8 @@ class Simple(resource.Resource):
             return b""
         else:
             request.responseHeaders.addRawHeader(b"content-type", b"application/json")
-            request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
+            # Commented out until we need it for access to server from locally generated or third party server.
+            # request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
             if path_method in allowable_methods:
                 ret = contacts.execute_route(path, data, args)
                 if 'error' in ret:

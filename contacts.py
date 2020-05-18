@@ -574,7 +574,7 @@ class Contacts:
             self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds, serial_number)
             # increase by two each time to deal with potential second insert
             serial_number += 2
-        return
+        return serial_number
 
     def _update(self, update_token, updates, floating_time, serial_number):
         for this_dict in self.contact_dict, self.spatial_dict:
@@ -606,6 +606,7 @@ class Contacts:
                 if not self._update(ut, updates, floating_seconds, serial_number):
                     self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
+        return serial_number
 
     # scan_status post
     @register_method(route='/status/scan')
@@ -639,7 +640,7 @@ class Contacts:
         update_tokens = data.get('update_tokens')
         # TODO-114 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
         floating_seconds = current_time()
-        self.send_or_sync({
+        serial_number = self.send_or_sync({
             "contact_ids": [{
                 "id": data.get('id'),
                 "status": data.get('status')-1,  # i.e. INFECTED=1 so send 0 to make Alice set her status to 1,
@@ -650,7 +651,7 @@ class Contacts:
         )
         self._update_or_result(
             length=len(update_tokens),
-            serial_number=2, # send_or_sync will use serial_number=0 and poss 1
+            serial_number=serial_number, # send_or_sync will use serial_number=0 and poss 1
             floating_seconds=floating_seconds,
             update_tokens=update_tokens,
             replaces=data.get('replaces'),
