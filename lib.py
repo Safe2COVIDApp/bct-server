@@ -9,10 +9,6 @@ import datetime
 
 logger = logging.getLogger(__name__)
 
-
-# The hash_seed and verify_nonce functions are a pair that may be changed as the function changes.
-# verify(seed, hashupdates(seed)) == true;
-
 def hash_seed(seed):
     return hashlib.sha1(seed.encode()).hexdigest()
 
@@ -43,13 +39,12 @@ def replacement_token(seed, n):
 # Generate Update Token from Replacement Token
 # Requirements: Not reversible, confirmable
 # i.e. updateToken(rt) == ut shows that you possess the original rt used to create ut
-def update_token(rt):
-    return fold_hash(hash_seed(rt))
-
+def get_update_token(rt):
+        return fold_hash(hash_seed(rt))
 
 # Check that the rt is a correct rt for the ut.
 def confirm_update_token(ut, rt):
-    return update_token(rt) == ut
+    return get_update_token(rt) == ut
 
 
 # override_time_for_testing is a variable that CAN be set in testing mode (useful in testing so we remove randomness and allow tests
@@ -60,9 +55,8 @@ override_time_for_testing = False
 # Return time in floating seconds,
 # Can be overridden, but strange that it goes through a global variable ! )
 def current_time():
+    global override_time_for_testing
     if override_time_for_testing:
-        # TODO-DAN I commented out the next line - doesn't make sense to me with no parameters.
-        # logging
         return override_time_for_testing
     else:
         return time.time()
@@ -71,6 +65,12 @@ def current_time():
 def set_current_time_for_testing(floating_seconds):
     global override_time_for_testing
     override_time_for_testing = floating_seconds
+    return
+
+
+def inc_current_time_for_testing(delta_seconds=1):
+    global override_time_for_testing
+    override_time_for_testing += delta_seconds
     return
 
 
