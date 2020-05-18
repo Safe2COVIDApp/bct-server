@@ -196,12 +196,14 @@ class Simple(resource.Resource):
             request.responseHeaders.addRawHeader(b"Connection", b"Keep-Alive")
             request.responseHeaders.addRawHeader(b"Access-Control-Allow-Headers", b"Content-Type")
             # The cross-origin headers were needed for some health provider portal work that isn't happening yet so commented out.
+            # before this gets commented back in, the origins should come from config file
             # request.responseHeaders.addRawHeader(b"Access-Control-Allow-Origin", b"*")
             # request.responseHeaders.addRawHeader(b"Vary", b"Origin")
             return b""
         else:
             request.responseHeaders.addRawHeader(b"content-type", b"application/json")
             # Commented out until we need it for access to server from locally generated or third party server.
+            # before this gets commented back in, the origins should come from config file
             # request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
             if path_method in allowable_methods:
                 ret = contacts.execute_route(path, data, args)
