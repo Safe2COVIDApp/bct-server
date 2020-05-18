@@ -107,7 +107,7 @@ if config.get('servers'):
             servers[server] = '1970-01-01T00:00Z'
 
 allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
-                     '/admin/status:GET', '/init:POST']
+                     '/admin/status:GET', '/status/result:POST', '/init:POST']
 
 
 def deferred_function(function):
@@ -186,28 +186,45 @@ class Simple(resource.Resource):
         args = {k.decode(): [item for item in v] for k, v in request.args.items()}
 
         path = request.path.decode()
-        logger.info('path is {path}', path=path)
-        request.responseHeaders.addRawHeader(b"content-type", b"application/json")
-        if ('%s:%s' % (path, request.method.decode())) in allowable_methods:
-            ret = contacts.execute_route(path, data, args)
-            if 'error' in ret:
-                request.setResponseCode(ret.get('status', 400))
-                ret = ret['error']
-                logger.info('error return is {ret}', ret=ret)
-            else:
-                # if any values functions in ret, then run then asynchronously and return None here
-                # if they aren't then return ret
+        method = request.method.decode()
+        path_method = '%s:%s' % (path, method)
+        logger.info('{method} {path}', method = method, path = path)
+        if method == "OPTIONS":
+            request.setResponseCode(204)
+            request.responseHeaders.addRawHeader(b"Allow", b"OPTIONS, GET, POST")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Methods", b"GET, POST, OPTIONS")
+            request.responseHeaders.addRawHeader(b"Connection", b"Keep-Alive")
+            request.responseHeaders.addRawHeader(b"Access-Control-Allow-Headers", b"Content-Type")
+            # The cross-origin headers were needed for some health provider portal work that isn't happening yet so commented out.
+            # before this gets commented back in, the origins should come from config file
+            # request.responseHeaders.addRawHeader(b"Access-Control-Allow-Origin", b"*")
+            # request.responseHeaders.addRawHeader(b"Vary", b"Origin")
+            return b""
+        else:
+            request.responseHeaders.addRawHeader(b"content-type", b"application/json")
+            # Commented out until we need it for access to server from locally generated or third party server.
+            # before this gets commented back in, the origins should come from config file
+            # request.responseHeaders.addRawHeader(b"access-control-allow-origin", b"*")
+            if path_method in allowable_methods:
+                ret = contacts.execute_route(path, data, args)
+                if 'error' in ret:
+                    request.setResponseCode(ret.get('status', 400))
+                    ret = ret['error']
+                    logger.info('error return is {ret}', ret = ret)
+                else:
+                    # if any values functions in ret, then run then asynchronously and return None here
+                    # if they aren't then return ret
 
-                ret = resolve_all_functions(ret, request)
-                logger.info('legal return is {ret}', ret=ret)
-        else:
-            request.setResponseCode(402)
-            ret = {"error": "no such request"}
-            logger.info('return is {ret}', ret=ret)
-        if twserver.NOT_DONE_YET != ret:
-            return json.dumps(ret).encode()
-        else:
-            return ret
+                    ret = resolve_all_functions(ret, request)
+                    logger.info('legal return is {ret}', ret = ret)
+            else:
+                request.setResponseCode(402)
+                ret = {"error": "no such request"}
+                logger.info('return is {ret}', ret = ret)
+            if twserver.NOT_DONE_YET != ret:
+                return json.dumps(ret).encode()
+            else:
+                return ret
 
 
 def sync_body(body, remote_server):
