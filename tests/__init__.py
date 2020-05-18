@@ -55,27 +55,18 @@ class Server:
         # logger.info('after %s call' % endpoint_name)
         return req
 
-    def send_status(self, seed=None, contacts=None, locations=None, **kwargs):
-        return self._status('/status/send', seed, contacts, locations, **kwargs)
-
     def send_status_json(self, seed=None, contacts=None, locations=None, **kwargs):
-        resp = self.send_status(seed=seed, contacts=contacts, locations=locations, **kwargs)
+        resp = self._status('/status/send', seed, contacts, locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
-
-    def scan_status(self, seed=None, contacts=None, locations=None, **kwargs):
-        return self._status('/status/scan', seed, contacts, locations, **kwargs)
 
     def scan_status_json(self, seed=None, contacts=None, locations=None, **kwargs):
-        resp = self.scan_status(seed=seed, contacts=contacts, locations=locations, **kwargs)
+        resp = self._status('/status/scan', seed, contacts, locations, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
-    def status_update(self, seed=None, **kwargs):  # Must have replaces
-        return self._status('/status/update', seed, None, None, **kwargs)
-
     def status_update_json(self, seed=None, **kwargs):  # Must have replaces
-        resp = self.status_update(seed=seed, **kwargs)
+        resp = self._status('/status/update', seed, None, None, **kwargs)
         assert resp.status_code == 200
         return resp.json()
 
@@ -92,6 +83,20 @@ class Server:
         assert resp.status_code == 200
         logger.info('after admin_config call')
         return resp
+
+    def result(self, **kwargs):
+        endpoint_name = '/status/result'
+        data = {}
+        data.update(kwargs)
+        headers = {}
+        current_time = kwargs.get('current_time')
+        if current_time:
+            headers['X-Testing-Time'] = str(current_time)
+        data.update(kwargs)
+        logger.info("Sending %s: %s" % (endpoint_name, str(data)))
+        resp = requests.post(self.url + endpoint_name, json=data, headers=headers)
+        assert resp.status_code == 200
+        return resp.json()
 
     def init(self, json_data):
         logger.info("before call to init")

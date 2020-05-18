@@ -2,7 +2,9 @@ import random
 import logging
 import copy
 import math
-from lib import new_seed, get_update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, set_current_time_for_testing, inc_current_time_for_testing
+from lib import new_seed, get_update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, \
+    set_current_time_for_testing, inc_current_time_for_testing, get_provider_seed_string, get_id_for_provider, \
+    random_ascii
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -82,11 +84,11 @@ class Client:
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
         self.prefix_bits = self.init_resp.get('prefix_bits', self.prefix_bits)
 
-    def new_id(self):
+    def new_id(self, id=None):
         """
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
-        self.current_id = "%X" % random.randrange(0, 2 ** 128)
+        self.current_id = id or "%X" % random.randrange(0, 2 ** 128)
         self.ids_used.append({"id": self.current_id, "last_used": current_time()})
 
     def move_to(self, loc):
@@ -246,7 +248,7 @@ class Client:
             status=new_status)
         logging.info("%s: status/send result: %s" % (self.name, str(json_data)))
 
-    def _update_to(self, new_status):
+    def _update_to(self, new_status, seed=None):
         """
         Perform a /send/update
 
@@ -255,10 +257,18 @@ class Client:
         """
         replaces = self.seed  # Will be None the first time
         length = self.length
-        self.seed = new_seed()
+        self.seed = seed or new_seed()
         self.length = 0
         json_data = self.server.status_update_json(status=new_status, seed=self.seed, replaces=replaces, length=length)
         logging.info("status/update result: %s" % (str(json_data)))
+
+    def got_tested(self, provider_id="", test_id="", pin=""):
+        logging.info("%s: got tested at %s testid=%s pin=%s" % (self.name, provider_id, test_id, pin))
+        self.local_status = STATUS_PUI
+        provider_seed_string = get_provider_seed_string(provider_id, test_id, pin)
+        id_for_provider = get_id_for_provider(provider_seed_string)
+        self._recalculate_status(seed=provider_seed_string)
+        self.new_id(id_for_provider)
 
     def local_status_event(self, new_status):
         """
@@ -268,7 +278,7 @@ class Client:
         self.local_status = new_status
         self._recalculate_status()  # This may trigger a /send/status or /send/update
 
-    def _recalculate_status(self):
+    def _recalculate_status(self, seed=None):
         """
         Work out any change in status, based on the rest of the state (id_alerts, location_alerts and local_status)
 
@@ -280,13 +290,13 @@ class Client:
         new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
                          + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
                          + [self.local_status])
-        if new_status != self.status:
-            self._notify_status(new_status)  # Correctly handles case of no change and can trigger /status/send or /status/update
-            self.status = new_status
+        self._notify_status(new_status, seed)  # Correctly handles case of no change and can trigger /status/send or /status/update
+        self.status = new_status
 
-    def _notify_status(self, new_status):
+    def _notify_status(self, new_status, seed=None):
         """
         Notify status and where required any observed ids and locations to server.
+        seed can override using a random number, and is used when working with a test provider
 
         There are only a few valid transitions
         1: Alice Healthy or Unknown receives notification (from #2 or #4) becomes PUI - status/send causes Bob #5
@@ -297,11 +307,12 @@ class Client:
         5: Bob receives notification (from Alice status/send or status/update #1) changes Healthy to Unknown - doesn't send anything out
         6: Bob receives notification (from Alice status/update #3) changes Unknown to Healthy, nothing sent
         8: Alice was Infected but recovers (Healthy, or another Unknown) - nothing sent
+        9: Alice is attempting to update based on a new seed that the Tester also knows
         Infected -> PUI shouldn't happen
         """
-        if self.status == STATUS_PUI and new_status != self.status:  # Cases #2 or #3 above, self.seed should be set
+        if self.status == STATUS_PUI and new_status != self.status or seed:  # Cases #2 or #3 or #9 above, self.seed should be set
             assert self.seed
-            self._update_to(new_status)
+            self._update_to(new_status, seed)
         # This covers cases #1 and #4 (H|U -> P|I) plus any newly observed ids or visited locations while P|I
         if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
             self._send_to(new_status)
@@ -329,6 +340,9 @@ class Client:
         Action taken every hour - check for updates
         """
         self.poll()  # Performs a /status/scan
+        messages = [ dp.get('message') for dp in self.id_alerts + self.location_alerts if dp.get('message') and not dp.get('replaced') ]
+        if len(messages):
+            logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
         self.expire_data()
 
     def simulate_random_walk(self, distance):
@@ -385,6 +399,77 @@ class Client:
 
             # Simulate an hourly event
             self.cron_hourly()  # Will poll for any data from server
+
+
+class Tester:
+
+    def __init__(self, server, provider_id):
+        self.server = server
+        self.provider_id = provider_id
+        self.tests = {}
+
+    def new_test(self, pin=None):
+        test_id = random_ascii(8)
+        if not pin:
+            pin = random_ascii(4)
+        self.tests[test_id] = {'pin': pin}
+        return (self.provider_id, test_id, pin)
+
+    def result(self, test_id, status):
+        """
+        Tester got a result, which should be STATUS_INFECTED or STATUS_HEALTHY
+        """
+        test = self.tests[test_id]
+        provider_seed_string = get_provider_seed_string(self.provider_id, test_id, test.get('pin'))
+        id_for_provider = get_id_for_provider(provider_seed_string)
+        test['status'] = status
+        length = 256 # How many points to account for - adjust this with experience
+        seed = new_seed()
+        update_tokens = [get_update_token(replacement_token(seed, n)) for n in range(length)]
+        json_data = self.server.result(
+            replaces = provider_seed_string,
+            status = status,
+            update_tokens = update_tokens,
+            id = id_for_provider,
+            message = "Please call 0412-345-6789 to speak to a contact tracer"
+        )
+
+
+def test_pseudoclient_work(server, data):
+    # Standard setup
+    server.reset()
+    logging.info('Started test_provider_and_tracer')
+    alice = Client(server=server, data=data, name="Alice")
+    alice.init(data.init_req)
+    bob = Client(server=server, data=data, name="Bob")
+    bob.init(data.init_req)
+    alice.simulate_observes(bob)
+    bob.simulate_observes(alice)
+    alice.local_status_event(STATUS_PUI)
+    bob.cron_hourly()  # Bob polls and should see alice
+    assert bob.status == STATUS_UNKNOWN
+    inc_current_time_for_testing()
+    logging.info('Alice gets tested')
+    tester = Tester(server, 'Kaiser')
+    (provider_id, test_id, pin) = tester.new_test()
+    alice.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
+    # TODO-114 bob isn't seeing this update
+    inc_current_time_for_testing()
+    bob.cron_hourly()  # Bob polls and should see update from alice
+    assert bob.status == STATUS_UNKNOWN
+    inc_current_time_for_testing()
+    logging.info('Test result comes in')
+    tester.result(test_id, STATUS_INFECTED)
+    #TODO-114 think thru side-effect of this as Alice's update doesnt have the message
+    bob.cron_hourly()
+    #TODO-114 display messages for Alice or Bob
+    assert bob.status == STATUS_PUI
+    inc_current_time_for_testing()
+    alice.cron_hourly()
+    assert alice.status == STATUS_INFECTED
+    inc_current_time_for_testing()
+    bob.cron_hourly()
+    assert bob.status == STATUS_PUI
 
 
 def test_pseudoclient_2client(server, data):

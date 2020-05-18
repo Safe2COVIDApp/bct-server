@@ -27,6 +27,13 @@ def new_seed(seed_string=None):
         seed_string = random_ascii(8)
     return hash_seed(seed_string)  # first hash_seed is to get size same as updates
 
+def get_provider_seed_string(provider_id, test_id, pin):
+    # Return X a string that can be calculated by an infected person or test provider but noone else
+    return hash_seed(provider_id + test_id + pin)
+
+def get_id_for_provider(provider_seed_string):
+    # Generate an id that the provider can also generate
+    return hash_seed(provider_seed_string + "TESTING").upper()
 
 # This group of functions centralize the process and cryptography for seed -> replacement_token -> update_token
 

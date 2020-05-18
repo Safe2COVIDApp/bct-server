@@ -555,54 +555,57 @@ class Contacts:
         # These are fields allowed in the send_status, and just copied from top level into each data point
         # Note memo is not supported yet and is a placeholder
         repeated_fields = {k: data.get(k) for k in ['memo', 'replaces', 'status'] if data.get(k)}
-        return self.send_or_sync(data, repeated_fields)
+        self.send_or_sync(data, repeated_fields)
+        return {"status": "ok"}
 
     # Common part of both /status/send and sync reception
-    def send_or_sync(self, data, repeated_fields):
-        floating_seconds = current_time()
+    def send_or_sync(self, data, repeated_fields=None, floating_seconds=None):
+        if not floating_seconds:
+            floating_seconds= current_time()
         serial_number = 0
         # first process contacts, then process geocode
         for contact in data.get('contact_ids', []):
-            contact.update(repeated_fields)
+            contact.update(repeated_fields or {})
             self._insert_blob_with_optional_replacement(self.contact_dict, contact, floating_seconds, serial_number)
             # increase by two each time to deal with potential second insert
             serial_number += 2
         for location in data.get('locations', []):
-            location.update(repeated_fields)
+            location.update(repeated_fields or {})
             self._insert_blob_with_optional_replacement(self.spatial_dict, location, floating_seconds, serial_number)
             # increase by two each time to deal with potential second insert
             serial_number += 2
-        return {"status": "ok"}
+        return
 
     def _update(self, update_token, updates, floating_time, serial_number):
         for this_dict in self.contact_dict, self.spatial_dict:
             this_dict.update(update_token, updates, floating_time, serial_number)
 
     # status_update POST
-    # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], memo, replaces, status, ... ]
+    # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], update_tokens: [ut,...], replaces, status, ... ]
     @register_method(route='/status/update')
     def status_update(self, data, args):
         logger.info('in status_update')
-        # floating_seconds = current_time()
-        length = data.get('length')  # This is how many to replace
-        floating_seconds = current_time()
-        serial_number = 0
+        self._update_or_result(serial_number=0, floating_seconds=current_time(), **data)
+        return {"status": "ok"}
+
+    def _update_or_result(self, length=0, serial_number=0, floating_seconds=None, update_tokens=None, replaces=None, status=None, message=None, **kwargs):
+        if not update_tokens:
+            update_tokens = []
         if length:
-            update_tokens = data.get('update_tokens', [])
             for i in range(length):
-                rt = replacement_token(data.get('replaces'), i)
+                rt = replacement_token(replaces, i)
                 ut = get_update_token(rt)
                 updates = {
                     'replaces': rt,
-                    'status': data.get('status'),
-                    'update_token': update_tokens[i]
+                    'status': status,
+                    'update_token': update_tokens[i],
+                    'message': message,
                 }  # SEE-OTHER-ADD-FIELDS
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
                 if not self._update(ut, updates, floating_seconds, serial_number):
                     self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
-        return {"status": "ok"}
 
     # scan_status post
     @register_method(route='/status/scan')
@@ -628,13 +631,35 @@ class Contacts:
         bounding_boxes = map(lambda l: (l['min_lat'], l['min_long'], l['max_lat'], l['max_long']),
                              req_locations) if req_locations else None
         number_to_return = int(self.config.get('MAX_SCAN_COUNT', 50))
-        return self._status_or_sync(prefixes, bounding_boxes, since, now, number_to_return)
+        return self._scan_or_sync(prefixes, bounding_boxes, since, now, number_to_return)
 
     # status/result POST
     @register_method(route='/status/result')
     def status_result(self, data, args):
-        pass
-    
+        update_tokens = data.get('update_tokens')
+        # TODO-114 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
+        floating_seconds = current_time()
+        self.send_or_sync({
+            "contact_ids": [{
+                "id": data.get('id'),
+                "status": data.get('status')-1,  # i.e. INFECTED=1 so send 0 to make Alice set her status to 1,
+                "update_token": update_tokens.pop(),
+                "message": data.get('message')
+            }] },
+            floating_seconds=floating_seconds
+        )
+        self._update_or_result(
+            length=len(update_tokens),
+            serial_number=2, # send_or_sync will use serial_number=0 and poss 1
+            floating_seconds=floating_seconds,
+            update_tokens=update_tokens,
+            replaces=data.get('replaces'),
+            status=data.get('status'),
+            message=data.get('message')
+        )
+        # TODO-114 maybe return how many of update_tokens used
+        return {"status": "ok"}
+
     # sync get
     @register_method(route='/sync')
     def sync(self, data, args):
@@ -647,9 +672,9 @@ class Contacts:
         earliest_allowed = self.config.getint('DAYS_OLDEST_DATA_SENT', 21) * 24 * 60 * 60
         since = max(unix_time_from_iso(since_string[0].decode()) if since_string else 1, earliest_allowed)
         number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
-        return self._status_or_sync(None, None, since, now, number_to_return)
+        return self._scan_or_sync(None, None, since, now, number_to_return)
 
-    def _status_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
+    def _scan_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
         """
         Common part of /status/sync and /sync
         returns data structure suitable for Response { contact_ids, locations, since, until, more_data }
