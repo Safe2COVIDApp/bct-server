@@ -3,8 +3,8 @@ import logging
 import copy
 import math
 from lib import new_seed, get_update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, \
-    set_current_time_for_testing, inc_current_time_for_testing, get_provider_seed_string, get_id_for_provider, \
-    random_ascii
+    set_current_time_for_testing, inc_current_time_for_testing, \
+    random_ascii, get_next_id, get_provider_daily, get_id_proof
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -49,15 +49,17 @@ class Client:
         self.name = name
 
         # Initialize arrays where we remember things
-        self.ids_used = []  # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
+        self.daily_ids_used = []  # A list of all daily ids, {id, last_used} used, these never leave the client and are used to calculate EphIds
         self.locations = []  # A list of locations this client has been for an epidemiologically significant time
         self.observed_ids = []  # A list of all ids we have seen
         self.location_alerts = []  # A list of alerts sent to us by the server filtered by locations we have been at
-        self.id_alerts = []  # A list of {id, update_token} sent to us by the server filtered by ids_used
+        self.id_alerts = []  # A list of {id, update_token} sent to us by the server filtered by map_ids_used()
 
         # Setup initial status
-        self.init_resp = None  # Setup in new_id
-        self.current_id = None  # Setup in new_id
+        self.init_resp = None  # Setup in init
+        self.daily_id = None  # Setup in new_daily_id
+        self.current_id = None
+        self.new_daily_id()
         self.new_id()
         self.current_location = None
         self.move_to({'lat': 0, 'long': 0})  # In a real client this would be called with GPS results
@@ -84,12 +86,25 @@ class Client:
         self.location_resolution = self.init_resp.get('location_resolution', self.location_resolution)
         self.prefix_bits = self.init_resp.get('prefix_bits', self.prefix_bits)
 
-    def new_id(self, id=None):
+    # A list of all {id, last_used} used, these never leave the client except via bluetooth beacon
+    def map_ids_used(self):
+        for daily_id in self.daily_ids_used+[self.daily_id]:
+            daily_id_str = daily_id['id']
+            for seq in range(daily_id['len']):
+                yield get_next_id(daily_id_str, seq)
+
+    def new_daily_id(self, id=None):
         """
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
-        self.current_id = id or "%X" % random.randrange(0, 2 ** 128)
-        self.ids_used.append({"id": self.current_id, "last_used": current_time()})
+        if self.daily_id:
+            self.daily_id['last_used'] = current_time()
+            self.daily_ids_used.append(self.daily_id)
+        self.daily_id = {"id": id or "%X" % random.randrange(0, 2 ** 128), "len": 0}
+
+    def new_id(self):
+        self.current_id = get_next_id(self.daily_id['id'],self.daily_id['len'])
+        self.daily_id['len'] += 1
 
     def move_to(self, loc):
         """
@@ -126,7 +141,7 @@ class Client:
         Return a list of prefixes that can be used for /status/scan
         """
         prefix_chars = int(self.prefix_bits/8)
-        return [i['id'][:prefix_chars] for i in self.ids_used]
+        return [i[:prefix_chars] for i in self.map_ids_used()]
 
     @staticmethod
     def close_to(other_loc, loc, distance):
@@ -160,8 +175,7 @@ class Client:
         self.since = json_data.get('until')
 
         # Record any ids in the poll that match one we have used (id = {id, last_used})
-        ids_to_match = [i['id'] for i in self.ids_used]
-        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in ids_to_match)])
+        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.map_ids_used())])
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
@@ -265,10 +279,14 @@ class Client:
     def got_tested(self, provider_id="", test_id="", pin=""):
         logging.info("%s: got tested at %s testid=%s pin=%s" % (self.name, provider_id, test_id, pin))
         self.local_status = STATUS_PUI
-        provider_seed_string = get_provider_seed_string(provider_id, test_id, pin)
-        id_for_provider = get_id_for_provider(provider_seed_string)
-        self._recalculate_status(seed=provider_seed_string)
-        self.new_id(id_for_provider)
+
+        provider_daily = get_provider_daily(provider_id, test_id, pin)
+        provider_proof = get_id_proof(provider_daily)
+        self._recalculate_status(seed=provider_proof)
+        self.new_daily_id(provider_daily)  # Saves as ued with len=0
+        self.new_id()  # Uses the 0-th and increments
+        self.new_daily_id() # Don't use the special daily id again
+        self.new_id()  # Uses the 0-th and increments
 
     def local_status_event(self, new_status):
         """
@@ -325,9 +343,9 @@ class Client:
         if len(self.locations):
             while self.locations[0].get('end_time') < expiry_time:
                 self.locations.pop(0)
-        if len(self.ids_used):
-            while self.ids_used[0].get('last_used') < expiry_time:
-                self.ids_used.pop(0)
+        if len(self.daily_ids_used):
+            while self.daily_ids_used[0].get('last_used') < expiry_time:
+                self.daily_ids_used.pop(0)
 
     def cron15(self):
         """
@@ -344,6 +362,9 @@ class Client:
         if len(messages):
             logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
         self.expire_data()
+
+    def cron_daily(self):
+        self.new_daily_id()
 
     def simulate_random_walk(self, distance):
         """
@@ -420,14 +441,15 @@ class Tester:
         Tester got a result, which should be STATUS_INFECTED or STATUS_HEALTHY
         """
         test = self.tests[test_id]
-        provider_seed_string = get_provider_seed_string(self.provider_id, test_id, test.get('pin'))
-        id_for_provider = get_id_for_provider(provider_seed_string)
+        provider_daily =  get_provider_daily(self.provider_id, test_id, test.get('pin'))
+        provider_proof = get_id_proof(provider_daily)  # This is the replaces value Alice will have derived UpdateTokens from
+        id_for_provider = get_next_id(provider_daily, 0)  # This is the id that Alice will be watching for
         test['status'] = status
         length = 256 # How many points to account for - adjust this with experience
         seed = new_seed()
         update_tokens = [get_update_token(replacement_token(seed, n)) for n in range(length)]
         json_data = self.server.result(
-            replaces = provider_seed_string,
+            replaces = provider_proof,
             status = status,
             update_tokens = update_tokens,
             id = id_for_provider,
@@ -453,7 +475,6 @@ def test_pseudoclient_work(server, data):
     tester = Tester(server, 'Kaiser')
     (provider_id, test_id, pin) = tester.new_test()
     alice.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
-    # TODO-114 bob isn't seeing this update
     inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should see update from alice
     assert bob.status == STATUS_UNKNOWN
@@ -462,7 +483,6 @@ def test_pseudoclient_work(server, data):
     tester.result(test_id, STATUS_INFECTED)
     #TODO-114 think thru side-effect of this as Alice's update doesnt have the message
     bob.cron_hourly()
-    #TODO-114 display messages for Alice or Bob
     assert bob.status == STATUS_PUI
     inc_current_time_for_testing()
     alice.cron_hourly()

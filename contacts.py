@@ -320,7 +320,7 @@ class ContactDict(FSBackedThreeLevelDict):
         if start_pos < 6:
             this_prefix = prefix[start_pos:]
             if len(this_prefix) >= 2:
-                ids = ids.get(this_prefix[0:2])
+                ids = ids.get(this_prefix[0:2].upper())
                 if ids:
                     yield from self._map_over_matching_contacts(prefix, ids, since, now, start_pos + 2)
             else:
@@ -334,7 +334,7 @@ class ContactDict(FSBackedThreeLevelDict):
                     if these_ids:
                         yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
         else:
-            for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
+            for contact_id in filter(lambda x: x.startswith(prefix.upper()), ids.keys()):
                 for floating_time_and_serial in ids[contact_id]:
                     if _good_date(floating_time_and_serial[0], since, now):
                         yield floating_time_and_serial
