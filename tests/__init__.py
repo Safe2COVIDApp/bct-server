@@ -8,7 +8,7 @@ import shutil
 from signal import SIGUSR1
 import json
 import os
-from lib import get_update_token, replacement_token
+from lib import get_update_token, get_replacement_token
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,7 @@ class Server:
         data = {}
         if seed and kwargs.get('replaces'):
             data['update_tokens'] = [
-                get_update_token(replacement_token(seed, i))
+                get_update_token(get_replacement_token(seed, i))
                 for i in range(kwargs.get('length'))]
         if contacts:
             data['contact_ids'] = contacts
@@ -84,25 +84,26 @@ class Server:
         logger.info('after admin_config call')
         return resp
 
+    def status_data_points(self, seed=None, **kwargs): # seed
+        return self._simple_post('/status/data_points', { "seed": seed }, **kwargs)
+
     def result(self, **kwargs):
-        endpoint_name = '/status/result'
-        data = {}
-        data.update(kwargs)
+        return self._simple_post('/status/result', {}, **kwargs)
+
+    def _simple_post(self, endpoint_name, data, **kwargs):
         headers = {}
         current_time = kwargs.get('current_time')
         if current_time:
             headers['X-Testing-Time'] = str(current_time)
+            del kwargs['current_time']  # Dont pass it to query
         data.update(kwargs)
         logger.info("Sending %s: %s" % (endpoint_name, str(data)))
         resp = requests.post(self.url + endpoint_name, json=data, headers=headers)
         assert resp.status_code == 200
         return resp.json()
 
-    def init(self, json_data):
-        logger.info("before call to init")
-        resp = requests.post(self.url + '/init', json=json_data)
-        assert resp.status_code == 200
-        return resp.json()
+    def init(self, json_data, **kwargs):
+        return self._simple_post('/init', json_data, **kwargs)
 
     def reset(self, delete_files=True):
         # only really do reset if proc exists

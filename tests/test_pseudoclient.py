@@ -2,8 +2,8 @@ import random
 import logging
 import copy
 import math
-from lib import new_seed, get_update_token, replacement_token, iso_time_from_seconds_since_epoch, current_time, \
-    set_current_time_for_testing, inc_current_time_for_testing, \
+from lib import new_seed, get_update_token, get_replacement_token, iso_time_from_seconds_since_epoch, current_time, \
+    set_current_time_for_testing, inc_current_time_for_testing, get_next_id_from_proof, \
     random_ascii, get_next_id, get_provider_daily, get_id_proof
 from threading import Thread
 
@@ -14,6 +14,10 @@ STATUS_INFECTED = 1
 STATUS_PUI = 2
 STATUS_UNKNOWN = 3
 STATUS_HEALTHY = 4
+
+StatusEnglish = [ "Test Positive", "Infected", "Under Investigation", "Unknown", "Healthy"]
+
+MAX_DATA_POINTS_PER_TEST = 256 # Should match in confi
 
 ######
 # This file is intended to give a roadmap for functionality needed in the real (app) client.
@@ -51,7 +55,7 @@ class Client:
         # Initialize arrays where we remember things
         self.daily_ids_used = []  # A list of all daily ids, {id, last_used} used, these never leave the client and are used to calculate EphIds
         self.locations = []  # A list of locations this client has been for an epidemiologically significant time
-        self.observed_ids = []  # A list of all ids we have seen
+        self.observed_ids = []  # A list of all EphIds we have seen via Bluetooth
         self.location_alerts = []  # A list of alerts sent to us by the server filtered by locations we have been at
         self.id_alerts = []  # A list of {id, update_token} sent to us by the server filtered by map_ids_used()
 
@@ -71,6 +75,7 @@ class Client:
         self.seed = None
         self.length = 0  # How many records have been reported with this seed
         self.since = None  # The time we last did a /status/scan
+        self.init(self.data.init_req)
 
     def init(self, init_data):
         """
@@ -92,6 +97,20 @@ class Client:
             daily_id_str = daily_id['id']
             for seq in range(daily_id['len']):
                 yield get_next_id(daily_id_str, seq)
+
+    def find_proof_and_seq(self, id):
+        """
+        This finds proof that this client created this id as part of the support for Contact Tracers
+        """
+        if id is None:
+            # Handle case where there is no id in the data point
+            return ""
+        else:
+            for daily_id in self.daily_ids_used+[self.daily_id]:
+                daily_id_str = daily_id['id']
+                for seq in range(daily_id['len']):
+                    if get_next_id(daily_id_str, seq):
+                        return get_id_proof(daily_id_str), seq
 
     def new_daily_id(self, id=None):
         """
@@ -148,6 +167,7 @@ class Client:
         """
         Calculate if the two locations are closer than distance
         This is a very crude "close_to" function because of the rounding in positions, could obviously be much better.
+        TODO-150 see open issue about time
         """
         return math.sqrt(((other_loc['lat'] - loc['lat']) ** 2 +
                           (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
@@ -182,6 +202,7 @@ class Client:
         existing_location_update_tokens = [loc.get('update_token') for loc in self.locations]
         self.location_alerts.extend(
             filter(
+                # TODO-150 see open issue about time of match
                 lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens,
                 json_data.get('locations', [])))
 
@@ -221,7 +242,7 @@ class Client:
         """
         Find a unique update_token to use, based on the seed and length
         """
-        ut = get_update_token(replacement_token(self.seed, self.length))
+        ut = get_update_token(get_replacement_token(self.seed, self.length))
         self.length += 1
         return ut
 
@@ -335,6 +356,27 @@ class Client:
         if new_status in [STATUS_PUI, STATUS_INFECTED] and (any(not c.get('update_token') for c in self.observed_ids) or any(not loc.get('update_token') for loc in self.locations)):
             self._send_to(new_status)
 
+    def _process_one_message(self, dp):
+        """
+        Substitute in a message from a datapoint which might be an id or location
+        """
+        proof_and_seq = self.find_proof_and_seq(dp.get('id',None))
+        return dp.get('message')\
+            .replace('{id}', dp.get('id',""))\
+            .replace('{proof}', proof_and_seq[0] if proof_and_seq else "")
+
+    def get_message_data_points(self):
+        return [dp for dp in self.id_alerts + self.location_alerts if
+         dp.get('message') and not dp.get('replaced')]
+
+    def show_messages(self):
+        """
+        If there are alerts then show the user the message.
+        """
+        messages = [ self._process_one_message(dp) for dp in self.get_message_data_points() ]
+        if len(messages):
+            logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
+
     def expire_data(self):
         """
         Expire old location and id data
@@ -349,7 +391,7 @@ class Client:
 
     def cron15(self):
         """
-        Action taken every 15 seconds
+        Action taken every 15 minutes
         """
         self.new_id()  # Rotate id
 
@@ -358,13 +400,15 @@ class Client:
         Action taken every hour - check for updates
         """
         self.poll()  # Performs a /status/scan
-        messages = [ dp.get('message') for dp in self.id_alerts + self.location_alerts if dp.get('message') and not dp.get('replaced') ]
-        if len(messages):
-            logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
+        self.show_messages() # Display any messges (in real client this could be handled various ways
         self.expire_data()
 
     def cron_daily(self):
+        """
+        Action taken if the app has been running for more than an hour
+        """
         self.new_daily_id()
+        self.init(self.data.init_req)
 
     def simulate_random_walk(self, distance):
         """
@@ -381,6 +425,7 @@ class Client:
         """
         self.listen(other.broadcast())
 
+    # TODO-114 expand simulation_step to include test and trace
     def simulation_step(self, step_parameters, readonly_clients):
         """
         Perform a single step of a simulation - this may change as new features are tested.
@@ -446,25 +491,60 @@ class Tester:
         id_for_provider = get_next_id(provider_daily, 0)  # This is the id that Alice will be watching for
         test['status'] = status
         length = 256 # How many points to account for - adjust this with experience
-        seed = new_seed()
-        update_tokens = [get_update_token(replacement_token(seed, n)) for n in range(length)]
+        test['seed'] = new_seed()
+        update_tokens = [get_update_token(get_replacement_token(test['seed'], n)) for n in range(length)]
         json_data = self.server.result(
             replaces = provider_proof,
             status = status,
             update_tokens = update_tokens,
             id = id_for_provider,
-            message = "Please call 0412-345-6789 to speak to a contact tracer"
+            message = "Please call 0412-345-6789 to speak to a contact tracer and quote {proof}"
         )
 
+    def send_test(self, test_id):
+        test = self.tests[test_id]
+        return { "seed": test['seed'], "test_id": test_id}  # Currently, only thing the Tracer needs is the seed, but test_id helps reference
 
-def test_pseudoclient_work(server, data):
+class Tracer:
+
+    def __init__(self, server):
+        self.server = server
+        self.traces = {}
+        self.id_index = {}
+
+    def receive_test(self, new_trace):
+        self.traces[new_trace.get('test_id')] = new_trace
+
+    def get_data_points(self, test_id):
+        trace = self.traces[test_id]
+        resp = self.server.status_data_points(seed=trace['seed'])
+        trace['contact_ids'] = resp['contact_ids']
+        for contact in resp['contact_ids']:
+            self.id_index[contact['id']] = {"contact": contact, "trace": trace}
+        trace['locations'] = resp['locations']
+
+    def check_provided_proof(self, proof):
+        """
+        Find any contact data points that relate to an id generated by the person who provided this proof
+        """
+        ret = []
+        for seq in range(24*15): # proof cant have been used more than once every 15 mins for a day
+            id = get_next_id_from_proof(proof, seq)
+            if id in self.id_index:
+                ret.append(self.id_index[id])
+        return ret
+
+    def provided_proof(self, proof):
+        for res in  self.check_provided_proof(proof):
+          logging.info("Test: %s was %s and they were in contact with id %s for %s minutes" %
+                     (res["trace"]["test_id"], StatusEnglish[res["contact"]["status"]], res["contact"]["id"], res["contact"]["duration"]))
+
+def test_pseudoclient_test_and_trace(server, data):
     # Standard setup
     server.reset()
     logging.info('Started test_provider_and_tracer')
     alice = Client(server=server, data=data, name="Alice")
-    alice.init(data.init_req)
     bob = Client(server=server, data=data, name="Bob")
-    bob.init(data.init_req)
     alice.simulate_observes(bob)
     bob.simulate_observes(alice)
     alice.local_status_event(STATUS_PUI)
@@ -490,6 +570,16 @@ def test_pseudoclient_work(server, data):
     inc_current_time_for_testing()
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
+    logging.info('Tracer gets test from Tester')
+    tracey = Tracer(server)
+    tracey.receive_test(tester.send_test(test_id))
+    logging.info('Tracer looks up users')
+    tracey.get_data_points(test_id)
+    assert len(tracey.traces[test_id]["contact_ids"]) == 2  # Saw Alice and Bob
+    logging.info('Bob gives Tracey a call')
+    bob_proof,bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
+    assert tracey.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
+    tracey.provided_proof(bob_proof)
 
 
 def test_pseudoclient_2client(server, data):
@@ -499,9 +589,7 @@ def test_pseudoclient_2client(server, data):
     server.reset()
     logging.info('Started test_pseudoclient_work')
     alice = Client(server=server, data=data, name="Alice")
-    alice.init(data.init_req)
     bob = Client(server=server, data=data, name="Bob")
-    bob.init(data.init_req)
     inc_current_time_for_testing()
     bob.simulate_random_walk(10)  # Bob has been in two locations now
     inc_current_time_for_testing()
@@ -595,7 +683,6 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     clients = []
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
-        c.init(data.init_req)
         clients.append(c)
     threads = []
     for c in clients:

@@ -34,15 +34,17 @@ def get_provider_daily(provider_id, test_id, pin):
 def get_id_proof(id):
     return hash_seed(id)
 
-def get_next_id(id, seq):
-    return hash_seed(get_id_proof(id) + str(seq))
+def get_next_id_from_proof(proof, seq):
+    return hash_seed(proof + str(seq))
 
+def get_next_id(id, seq):
+    return get_next_id_from_proof(get_id_proof(id), seq)
 
 # This group of functions centralize the process and cryptography for seed -> replacement_token -> update_token
 
 # Generate Replacement token from seed + n (which should increment)
 # Requirements - none reversible, cannot be used to find the seed, or any other replacement_token
-def replacement_token(seed, n):
+def get_replacement_token(seed, n):
     return hash_seed(seed + str(n))
 
 

@@ -6,7 +6,7 @@ import json
 import rtree
 import copy
 from collections import defaultdict
-from lib import get_update_token, replacement_token, random_ascii, current_time, unix_time_from_iso, \
+from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
     iso_time_from_seconds_since_epoch
 from blist import sortedlist
 
@@ -46,6 +46,7 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
+# DICT.get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
 # DICT.retrieve_json_from_file_name(file_name) -> blob
@@ -279,6 +280,13 @@ class FSBackedThreeLevelDict:
         chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(components[0])
         return "%s/%s" % (dir_name, file_name)
 
+    def get_blob_from_update_token(self, update_token):
+        file_name = self.update_index.get(update_token)
+        if file_name:
+            return self.retrieve_json_from_file_name(file_name)
+        else:
+            return None
+
     def update(self, updating_token, updates, floating_seconds, serial_number):
         """
         Look for an entry matching updating_token, add a new one after modifying with updates
@@ -289,9 +297,8 @@ class FSBackedThreeLevelDict:
         :param serial_number int
         :return:             True if succeeded
         """
-        file_name = self.update_index.get(updating_token)
-        if file_name:
-            blob = self.retrieve_json_from_file_name(file_name)
+        blob = self.get_blob_from_update_token(updating_token)
+        if blob:
             blob.update(updates)
             self.insert(None, blob, floating_seconds, serial_number)
             return True
@@ -593,7 +600,7 @@ class Contacts:
             update_tokens = []
         if length:
             for i in range(length):
-                rt = replacement_token(replaces, i)
+                rt = get_replacement_token(replaces, i)
                 ut = get_update_token(rt)
                 updates = {
                     'replaces': rt,
@@ -660,6 +667,23 @@ class Contacts:
         )
         # TODO-114 maybe return how many of update_tokens used
         return {"status": "ok"}
+
+    # POST status/data_points
+    @register_method(route='/status/data_points')
+    def status_data_points(self, data, args):
+        seed = data.get('seed')
+        ret = {"contact_ids": [], "locations": []}
+        # TODO-114 consider keeping looking if >MAX_DATA_POINTS_PER_TEST
+        for i in range(self.config.getint('MAX_DATA_POINTS_PER_TEST', 256)):
+            update_token = get_update_token(get_replacement_token(seed, i))
+            blob = self.spatial_dict.get_blob_from_update_token(update_token)
+            # TODO-114 need to make this a function to do deferred maybe using file names instead of blobs
+            if blob:
+                ret["locations"].append(blob)
+            blob = self.contact_dict.get_blob_from_update_token(update_token)
+            if blob:
+                ret["contact_ids"].append(blob)
+        return ret
 
     # sync get
     @register_method(route='/sync')
