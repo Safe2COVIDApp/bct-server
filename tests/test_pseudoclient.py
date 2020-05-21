@@ -25,7 +25,6 @@ MAX_DATA_POINTS_PER_TEST = 256 # Should match in confi
 
 set_current_time_for_testing(100000)
 
-
 class Client:
 
     def __init__(self, server=None, data=None, name="Unnamed", **kwargs):
@@ -75,6 +74,7 @@ class Client:
         self.seed = None
         self.length = 0  # How many records have been reported with this seed
         self.since = None  # The time we last did a /status/scan
+        self.pending_test = None
         self.init(self.data.init_req)
 
     def init(self, init_data):
@@ -195,7 +195,12 @@ class Client:
         self.since = json_data.get('until')
 
         # Record any ids in the poll that match one we have used (id = {id, last_used})
-        self.id_alerts.extend([i for i in json_data['contact_ids'] if (i.get('id') in self.map_ids_used())])
+        # Note that this can include a test result which might be STATUS_HEALTHY
+        matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
+        self.id_alerts.extend(matched_ids)
+        if self.pending_test and self.pending_test['id'] in [ i['id'] for i in matched_ids]:
+            # TODO-114 check this code gets called
+            self.pending_test = None    # Clear pending test
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
@@ -306,6 +311,8 @@ class Client:
         self._recalculate_status(seed=provider_proof)
         self.new_daily_id(provider_daily)  # Saves as ued with len=0
         self.new_id()  # Uses the 0-th and increments
+        # Record the NEW current_id as a pending test, when we see a notification (either way) we'll clear this
+        self.pending_test = { "id": self.current_id, "provider_id": provider_id, "test_id": test_id, "pin": pin }
         self.new_daily_id() # Don't use the special daily id again
         self.new_id()  # Uses the 0-th and increments
 
@@ -426,7 +433,7 @@ class Client:
         self.listen(other.broadcast())
 
     # TODO-114 expand simulation_step to include test and trace
-    def simulation_step(self, step_parameters, readonly_clients):
+    def simulation_step(self, step_parameters, readonly_clients, tester):
         """
         Perform a single step of a simulation - this may change as new features are tested.
 
@@ -434,10 +441,13 @@ class Client:
         :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
         :return:
         """
+        def _chance(s):
+            return not random.randrange(0, step_parameters[s])
+
         for step in range(0, step_parameters['steps']):
             inc_current_time_for_testing()  # At least one clock tick
             # Possibly move the client
-            if not random.randrange(0, step_parameters['chance_of_walking']):
+            if _chance('chance_of_walking'):
                 self.simulate_random_walk(10)
                 logging.info(
                     "%s: walked to %.5fN,%.5fW" % (self.name, self.current_location['lat'], self.current_location['long']))
@@ -449,18 +459,23 @@ class Client:
                         self.simulate_observes(o)
                         logging.info("%s: observed %s" % (self.name, o.name))
 
-            if self.status == STATUS_PUI:
-                # Simulate receiving a test result
-                if not random.randrange(0, step_parameters['chance_of_test_positive']):
-                    self.local_status_event(STATUS_INFECTED)
-                else:
-                    self.local_status_event(STATUS_HEALTHY)
-            else:
+            if self.status == STATUS_PUI and not self.pending_test:
+                if _chance('chance_of_getting_tested'):
+                    (provider_id, test_id, pin) = tester.new_test()
+                    self.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
+            elif self.pending_test and _chance('chance_of_getting_result'):
+                    # Simulate receiving a test result
+                    if _chance('chance_of_test_positive'):
+                        # TODO-114 need test_id
+                        tester.result(self.pending_test['test_id'], STATUS_INFECTED)
+                    else:
+                        tester.result(self.pending_test['test_id'], STATUS_HEALTHY)
+            elif not self.pending_test:
                 # Simulate finding infected by some method
-                if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and not random.randrange(0, step_parameters['chance_of_infection']):
+                if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and _chance('chance_of_infection'):
                     self.local_status_event(STATUS_PUI)
                 # Simulate recovering by some other method
-                elif self.status in [STATUS_INFECTED] and not random.randrange(0, step_parameters['chance_of_recovery']):
+                elif self.status in [STATUS_INFECTED] and _chance('chance_of_recovery'):
                     self.local_status_event(STATUS_HEALTHY)
 
             # Simulate an hourly event
@@ -643,6 +658,8 @@ def test_pseudoclient_multiclient(server, data):
         'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
         'chance_of_recovery': 10,  # Average 10 steps before recover
         'bluetooth_range': 2,
+        'chance_of_getting_tested': 2,
+        'chance_of_getting_result': 3,
         'steps': 1,                 # Steps each client does on own before back to this level
     }
     clients = []
@@ -651,7 +668,7 @@ def test_pseudoclient_multiclient(server, data):
         cl = Client(server=server, data=data, name=str(len(clients)))
         cl.init(data.init_req)
         clients.append(cl)
-
+    tester = Tester(server, "Kaiser")
     logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
     for i in range(simulation_parameters['number_of_initial_clients']):
         _add_client()
@@ -660,11 +677,9 @@ def test_pseudoclient_multiclient(server, data):
         if simulation_parameters['add_client_each_step']:
             _add_client()
         for c in clients:
-            c.simulation_step(step_parameters, clients)
-
+            c.simulation_step(step_parameters, clients, tester)
 
 def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
-
     """
     This test simulates a large group of clients in separate threads.
     results aren't checked,
@@ -678,16 +693,19 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
         'chance_of_test_positive': 2,  # Chance that a PUI tests positive is 1:2
         'chance_of_recovery': 10,  # Average 10 steps before recover
         'bluetooth_range': 2,
+        'chance_of_getting_tested': 2,
+        'chance_of_getting_result': 3,
         'steps': n_steps,                 # Steps each client does on own before back to this level
     }
     clients = []
+    tester = Tester(server, "Kaiser")
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
         clients.append(c)
     threads = []
     for c in clients:
         # This next line is the one we want to multithread
-        this_thread = Thread(target=c.simulation_step, args=(step_parameters, clients,))
+        this_thread = Thread(target=c.simulation_step, args=(step_parameters, clients, tester,))
         threads.append(this_thread)
         this_thread.start()
     for t in threads:
