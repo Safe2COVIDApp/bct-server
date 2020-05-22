@@ -95,6 +95,10 @@ class FSBackedThreeLevelDict:
         serial_number = int(parts[2])
         return key, floating_seconds, serial_number
 
+    @staticmethod
+    def _get_file_name_from_parts(key, floating_seconds, serial_number):
+        return '%s:%f:%s.data' % (key, floating_seconds, serial_number)
+
     def _add_to_items(self, key, floating_seconds_and_serial_number):
         bottom_level = self.get_bottom_level_from_key(key)  # { key: [(floating_seconds, serial)]
         if key in bottom_level:  # Already at least one item for this key
@@ -122,7 +126,11 @@ class FSBackedThreeLevelDict:
                     relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
+                    blob = None
+                    try:
                     blob = json.load(open('/'.join([root, file_name])))
+                    except Exception as e: # TODO find what kind of exceptions happen and why and handle
+                        pass
                     update_token = blob.get('update_token')
                     self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
                     self._load_key(key, blob)
@@ -194,7 +202,7 @@ class FSBackedThreeLevelDict:
                 raise Exception("Key %s must by at least 6 characters long" % key)
             key = key.upper()
             chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
-            file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
+            file_name = FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)
             relative_file_path = '%s/%s' % (dir_name, file_name)
             # Put in the in-memory data structures
             self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
@@ -210,7 +218,10 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
+        try:
         return json.load(open(self.directory + '/' + file_path))
+        except Exception as e:  # TODO find what kinds of errors occur and why, and handle or fix
+            pass
 
     def retrieve_json_from_file_name(self, file_name):
         return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
@@ -457,7 +468,7 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         """
         bottom_level = self.get_bottom_level_from_key(key)
         chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
-        yield from ["%s/%s:%s:%s.data" % (dir_name, key, floating_seconds, serial_number) for floating_seconds, serial_number in bottom_level[key] if _good_date(floating_seconds, since, now)]
+        yield from ["%s/%s" % (dir_name, FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)) for floating_seconds, serial_number in bottom_level[key] if _good_date(floating_seconds, since, now)]
         return
 
     # Key string will be in the file name, but not in the blob
