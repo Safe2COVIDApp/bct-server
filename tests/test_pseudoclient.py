@@ -684,8 +684,7 @@ def test_pseudoclient_multiclient(server, data):
         for c in clients:
             c.simulation_step(step_parameters, clients, terry, tracy)
 
-def test_pseudoclient_work(server, data, n_clients=5, n_steps=20):
-    #def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=20):
+def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     """
     This test simulates a large group of clients in separate threads.
     results aren't checked,

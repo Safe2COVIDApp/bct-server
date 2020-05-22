@@ -49,7 +49,9 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # DICT.get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
+# DICT.retrieve_json_from_file_paths([file_path]) -> [blob]
 # DICT.retrieve_json_from_file_name(file_name) -> blob
+# DICT.retrieve_json_from_file_names([file_name]) -> [blob]
 # DICT.time_and_serial_number_to_file_path_map[floating_seconds_and_serial] -> file_path
 # ContactDict._key_string_from_blob(blob) -> blob['id']
 # SpatialDict._key_string_from_blob(blob) -> key_string
@@ -128,7 +130,7 @@ class FSBackedThreeLevelDict:
                     # - maintaining an index would be better.
                     blob = None
                     try:
-                    blob = json.load(open('/'.join([root, file_name])))
+                        blob = json.load(open('/'.join([root, file_name])))
                     except Exception as e: # TODO find what kind of exceptions happen and why and handle
                         pass
                     update_token = blob.get('update_token')
@@ -219,7 +221,7 @@ class FSBackedThreeLevelDict:
 
     def retrieve_json_from_file_path(self, file_path):
         try:
-        return json.load(open(self.directory + '/' + file_path))
+            return json.load(open(self.directory + '/' + file_path))
         except Exception as e:  # TODO find what kinds of errors occur and why, and handle or fix
             pass
 
@@ -229,6 +231,11 @@ class FSBackedThreeLevelDict:
     def retrieve_json_from_file_paths(self, file_paths):
         for file_path in file_paths:
             yield self.retrieve_json_from_file_path(file_path)
+        return
+
+    def retrieve_json_from_file_names(self, file_names):
+        for file_name in file_names:
+            yield self.retrieve_json_from_file_name(file_name)
         return
 
     def _delete(self, file_path):
@@ -691,15 +698,24 @@ class Contacts:
         seed = data.get('seed')
         ret = {"contact_ids": [], "locations": []}
         # TODO-114 consider keeping looking if >MAX_DATA_POINTS_PER_TEST
+        locations = []
+        contact_ids = []
         for i in range(self.config.getint('MAX_DATA_POINTS_PER_TEST', 256)):
+
             update_token = get_update_token(get_replacement_token(seed, i))
-            blob = self.spatial_dict.get_blob_from_update_token(update_token)
-            # TODO-114 need to make this a function to do deferred maybe using file names instead of blobs
-            if blob:
-                ret["locations"].append(blob)
-            blob = self.contact_dict.get_blob_from_update_token(update_token)
-            if blob:
-                ret["contact_ids"].append(blob)
+            file_name = self.spatial_dict.update_index.get(update_token)
+            if file_name:
+                locations.append(file_name)
+            file_name = self.contact_dict.update_index.get(update_token)
+            if file_name:
+                contact_ids.append(file_name)
+
+        def get_location_id_data():
+            return list(self.spatial_dict.retrieve_json_from_file_names(locations))
+        ret['locations'] = get_location_id_data
+        def get_contact_id_data():
+            return list(self.contact_dict.retrieve_json_from_file_names(contact_ids))
+        ret['contact_ids'] = get_contact_id_data
         return ret
 
     # sync get
