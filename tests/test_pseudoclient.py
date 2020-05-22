@@ -308,6 +308,7 @@ class Client:
 
         provider_daily = get_provider_daily(provider_id, test_id, pin)
         provider_proof = get_id_proof(provider_daily)
+        # This will update any existing entries with update_tokens from a known seed
         self._recalculate_status(seed=provider_proof)
         self.new_daily_id(provider_daily)  # Saves as ued with len=0
         self.new_id()  # Uses the 0-th and increments

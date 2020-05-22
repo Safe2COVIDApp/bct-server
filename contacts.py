@@ -196,7 +196,7 @@ class FSBackedThreeLevelDict:
         #    return
         update_token = value.get('update_token')
         if update_token in self.update_index:
-            logger.info("Silently ignoring duplicate of update token: %s" % update_token)
+            logger.info('Silently ignoring duplicate of update token: {update_token}', update_token=update_token)
         else:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
@@ -595,8 +595,13 @@ class Contacts:
         return serial_number
 
     def _update(self, update_token, updates, floating_time, serial_number):
-        for this_dict in self.contact_dict, self.spatial_dict:
-            this_dict.update(update_token, updates, floating_time, serial_number)
+        """
+        Update in any dict
+        returns: true (and skip rest) if any update succeeded
+        """
+        return any(
+            this_dict.update(update_token, updates, floating_time, serial_number) for this_dict in [self.contact_dict, self.spatial_dict]
+        )
 
     # status_update POST
     # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], update_tokens: [ut,...], replaces, status, ... ]
@@ -622,6 +627,7 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
                 if not self._update(ut, updates, floating_seconds, serial_number):
+                    logger.info("Holding update tokens for later {update_token}:{updates}",update_token=ut,updates=str(updates))
                     self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
         return serial_number
