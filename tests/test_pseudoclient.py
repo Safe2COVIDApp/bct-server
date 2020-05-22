@@ -389,12 +389,10 @@ class Client:
         Expire old location and id data
         """
         expiry_time = current_time()-self.expire_locations_seconds
-        if len(self.locations):
-            while self.locations[0].get('end_time') < expiry_time:
-                self.locations.pop(0)
-        if len(self.daily_ids_used):
-            while self.daily_ids_used[0].get('last_used') < expiry_time:
-                self.daily_ids_used.pop(0)
+        while len(self.locations) and self.locations[0].get('end_time') < expiry_time:
+            self.locations.pop(0)
+        while len(self.daily_ids_used) and self.daily_ids_used[0].get('last_used') < expiry_time:
+            self.daily_ids_used.pop(0)
 
     def cron15(self):
         """
@@ -432,8 +430,7 @@ class Client:
         """
         self.listen(other.broadcast())
 
-    # TODO-114 expand simulation_step to include test and trace
-    def simulation_step(self, step_parameters, readonly_clients, tester):
+    def simulation_step(self, step_parameters, readonly_clients, tester, tracer):
         """
         Perform a single step of a simulation - this may change as new features are tested.
 
@@ -460,16 +457,21 @@ class Client:
                         logging.info("%s: observed %s" % (self.name, o.name))
 
             if self.status == STATUS_PUI and not self.pending_test:
-                if _chance('chance_of_getting_tested'):
+                if any(i.get('message') for i in self.id_alerts):
+                    if _chance('chance_of_calling_tracer'):
+                        proof, seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
+                        tracer.provided_proof(proof)
+                elif _chance('chance_of_getting_tested'):
                     (provider_id, test_id, pin) = tester.new_test()
                     self.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
             elif self.pending_test and _chance('chance_of_getting_result'):
                     # Simulate receiving a test result
+                    test_id = self.pending_test['test_id']
                     if _chance('chance_of_test_positive'):
-                        # TODO-114 need test_id
-                        tester.result(self.pending_test['test_id'], STATUS_INFECTED)
+                        tester.result(test_id, STATUS_INFECTED)
+                        tracer.receive_test(tester.send_test(test_id))
                     else:
-                        tester.result(self.pending_test['test_id'], STATUS_HEALTHY)
+                        tester.result(test_id, STATUS_HEALTHY)
             elif not self.pending_test:
                 # Simulate finding infected by some method
                 if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and _chance('chance_of_infection'):
@@ -482,7 +484,7 @@ class Client:
             self.cron_hourly()  # Will poll for any data from server
 
 
-class Tester:
+class xTester:
 
     def __init__(self, server, provider_id):
         self.server = server
@@ -528,7 +530,9 @@ class Tracer:
         self.id_index = {}
 
     def receive_test(self, new_trace):
-        self.traces[new_trace.get('test_id')] = new_trace
+        test_id = new_trace.get('test_id')
+        self.traces[test_id] = new_trace
+        self.get_data_points(test_id)
 
     def get_data_points(self, test_id):
         trace = self.traces[test_id]
@@ -567,15 +571,15 @@ def test_pseudoclient_test_and_trace(server, data):
     assert bob.status == STATUS_UNKNOWN
     inc_current_time_for_testing()
     logging.info('Alice gets tested')
-    tester = Tester(server, 'Kaiser')
-    (provider_id, test_id, pin) = tester.new_test()
+    terry = xTester(server, 'Kaiser')
+    (provider_id, test_id, pin) = terry.new_test()
     alice.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
     inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should see update from alice
     assert bob.status == STATUS_UNKNOWN
     inc_current_time_for_testing()
     logging.info('Test result comes in')
-    tester.result(test_id, STATUS_INFECTED)
+    terry.result(test_id, STATUS_INFECTED)
     #TODO-114 think thru side-effect of this as Alice's update doesnt have the message
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
@@ -585,16 +589,14 @@ def test_pseudoclient_test_and_trace(server, data):
     inc_current_time_for_testing()
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
-    logging.info('Tracer gets test from Tester')
-    tracey = Tracer(server)
-    tracey.receive_test(tester.send_test(test_id))
-    logging.info('Tracer looks up users')
-    tracey.get_data_points(test_id)
-    assert len(tracey.traces[test_id]["contact_ids"]) == 2  # Saw Alice and Bob
+    logging.info('Tracer gets test from Tester and looks up users')
+    tracy = Tracer(server)
+    tracy.receive_test(terry.send_test(test_id))
+    assert len(tracy.traces[test_id]["contact_ids"]) == 2  # Saw Alice and Bob
     logging.info('Bob gives Tracey a call')
     bob_proof,bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
-    assert tracey.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
-    tracey.provided_proof(bob_proof)
+    assert tracy.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
+    tracy.provided_proof(bob_proof)
 
 
 def test_pseudoclient_2client(server, data):
@@ -660,6 +662,7 @@ def test_pseudoclient_multiclient(server, data):
         'bluetooth_range': 2,
         'chance_of_getting_tested': 2,
         'chance_of_getting_result': 3,
+        'chance_of_calling_tracer': 2,
         'steps': 1,                 # Steps each client does on own before back to this level
     }
     clients = []
@@ -668,7 +671,8 @@ def test_pseudoclient_multiclient(server, data):
         cl = Client(server=server, data=data, name=str(len(clients)))
         cl.init(data.init_req)
         clients.append(cl)
-    tester = Tester(server, "Kaiser")
+    terry = xTester(server, "Kaiser")
+    tracy = Tracer(server)
     logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
     for i in range(simulation_parameters['number_of_initial_clients']):
         _add_client()
@@ -677,9 +681,10 @@ def test_pseudoclient_multiclient(server, data):
         if simulation_parameters['add_client_each_step']:
             _add_client()
         for c in clients:
-            c.simulation_step(step_parameters, clients, tester)
+            c.simulation_step(step_parameters, clients, terry, tracy)
 
-def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
+def test_pseudoclient_work(server, data, n_clients=5, n_steps=20):
+    #def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=20):
     """
     This test simulates a large group of clients in separate threads.
     results aren't checked,
@@ -695,17 +700,19 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
         'bluetooth_range': 2,
         'chance_of_getting_tested': 2,
         'chance_of_getting_result': 3,
+        'chance_of_calling_tracer': 1,
         'steps': n_steps,                 # Steps each client does on own before back to this level
     }
     clients = []
-    tester = Tester(server, "Kaiser")
+    terry = xTester(server, "Kaiser")
+    tracy = Tracer(server)
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
         clients.append(c)
     threads = []
     for c in clients:
         # This next line is the one we want to multithread
-        this_thread = Thread(target=c.simulation_step, args=(step_parameters, clients, tester,))
+        this_thread = Thread(target=c.simulation_step, args=(step_parameters, clients, terry, tracy))
         threads.append(this_thread)
         this_thread.start()
     for t in threads:
