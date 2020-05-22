@@ -296,9 +296,9 @@ class Client:
         For example depending on whether it is self-reported or notified
         """
         replaces = self.seed  # Will be None the first time
+        # Self.length tells us how many need update, and afterwards will tell us how many were updated with the new seed, so it doesn't change.
         length = self.length
         self.seed = seed or new_seed()
-        self.length = 0
         json_data = self.server.status_update_json(status=new_status, seed=self.seed, replaces=replaces, length=length)
         logging.info("status/update result: %s" % (str(json_data)))
 
