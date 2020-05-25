@@ -197,10 +197,18 @@ class Client:
         # Record any ids in the poll that match one we have used (id = {id, last_used})
         # Note that this can include a test result which might be STATUS_HEALTHY
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
-        self.id_alerts.extend(matched_ids)
-        if self.pending_test and self.pending_test['id'] in [ i['id'] for i in matched_ids]:
-            # TODO-114 check this code gets called
-            self.pending_test = None    # Clear pending test
+        # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
+        if self.pending_test:
+            for i in matched_ids:
+                if i['id'] == self.pending_test['id']:
+                    i['test'] = self.pending_test  # Save the test (includes test_id and pin)
+                    self.pending_test = None  # Clear pending test
+                    # Clear out older alerts - TODO-152 this may be more nuanced
+                    self.id_alerts = []
+                    self.location_alerts = []
+                    self.local_status = STATUS_HEALTHY # Note this is correct even if the test is INFECTED, as its the infected test that counts, and there is no LOCAL status event any more
+                    break # Currently can only be one pending_test so only one test result can match it
+        self.id_alerts.extend(matched_ids)  # Add the new ones after we have cleared out alerts no longer valid
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
@@ -325,6 +333,17 @@ class Client:
         self.local_status = new_status
         self._recalculate_status()  # This may trigger a /send/status or /send/update
 
+    def _get_status_from_id(self, id):
+        # This would be a good heuristic if we wanted to take into account duration of contact for example
+        if id.get('test'):
+            return id['status']        # Believe a test result
+        else:
+            return id['status'] + 1    # E.g. Meeting someone infected makes us PUI, meeting someone PUI makes us unknown
+
+    def _get_status_from_location(self, loc):
+        # This would be a good heuristic if we wanted to take into account duration of being in location for example
+        return loc['status'] + 1
+
     def _recalculate_status(self, seed=None):
         """
         Work out any change in status, based on the rest of the state (id_alerts, location_alerts and local_status)
@@ -334,8 +353,9 @@ class Client:
 
         Can trigger a /status/send or /status/update
         """
-        new_status = min([i['status'] + 1 for i in self.id_alerts if not i.get('replaced')]
-                         + [loc['status'] + 1 for loc in self.location_alerts if not loc.get('replaced')]
+        id_statuses = []
+        new_status = min([self._get_status_from_id(i) for i in self.id_alerts if not i.get('replaced')]
+                         + [self._get_status_from_location(loc) for loc in self.location_alerts if not loc.get('replaced')]
                          + [self.local_status])
         self._notify_status(new_status, seed)  # Correctly handles case of no change and can trigger /status/send or /status/update
         self.status = new_status
@@ -511,12 +531,13 @@ class xTester:
         length = 256 # How many points to account for - adjust this with experience
         test['seed'] = new_seed()
         update_tokens = [get_update_token(get_replacement_token(test['seed'], n)) for n in range(length)]
+        message = "Please call 0412-345-6789 to speak to a contact tracer and quote {proof}" if status == STATUS_INFECTED else None
         json_data = self.server.result(
             replaces = provider_proof,
             status = status,
             update_tokens = update_tokens,
             id = id_for_provider,
-            message = "Please call 0412-345-6789 to speak to a contact tracer and quote {proof}"
+            message = message
         )
 
     def send_test(self, test_id):
@@ -565,11 +586,18 @@ def test_pseudoclient_test_and_trace(server, data):
     logging.info('Started test_provider_and_tracer')
     alice = Client(server=server, data=data, name="Alice")
     bob = Client(server=server, data=data, name="Bob")
+    carol = Client(server=server, data=data, name="Carol")
+    # Alice - Bob - Carol (note Alice & Carol did not connect
     alice.simulate_observes(bob)
     bob.simulate_observes(alice)
+    bob.simulate_observes(carol)
+    carol.simulate_observes(bob)
     alice.local_status_event(STATUS_PUI)
+    # All three poll
+    alice.cron_hourly()
     bob.cron_hourly()  # Bob polls and should see alice
     assert bob.status == STATUS_UNKNOWN
+    carol.cron_hourly()  # Bob polls and wont see Bob as hes still healthy
     inc_current_time_for_testing()
     logging.info('Alice gets tested')
     terry = xTester(server, 'Kaiser')
@@ -579,15 +607,22 @@ def test_pseudoclient_test_and_trace(server, data):
     bob.cron_hourly()  # Bob polls and should see update from alice
     assert bob.status == STATUS_UNKNOWN
     inc_current_time_for_testing()
-    logging.info('Test result comes in')
+    logging.info('Test result comes in, terry should /send/result which will set datapoints on server for Bob and Alice')
     terry.result(test_id, STATUS_INFECTED)
     #TODO-114 think thru side-effect of this as Alice's update doesnt have the message
+    logging.info('Bob scans and picks up his status change telling him to call Tracey')
+    logging.info('Bob then does a "/status/send 2 which should get to Carol')
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
     inc_current_time_for_testing()
+    logging.info('Alice /status/scan gets result status=0 (TESTPOSITIVE) telling her to call Tracey, and the notice from Bob (which is only PUI so not relevant) and sends update to Bob')
     alice.cron_hourly()
     assert alice.status == STATUS_INFECTED
+    logging.info('Carol polls, and should see the update from Bob with status=2 (PUI)')
+    carol.cron_hourly()
+    assert carol.status == STATUS_UNKNOWN
     inc_current_time_for_testing()
+    logging.info('Bob does another poll, and gets the update from Alice which is superfluous (becasue of the direct Tester update), nothing should have changed for him')
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
     logging.info('Tracer gets test from Tester and looks up users')
@@ -598,6 +633,28 @@ def test_pseudoclient_test_and_trace(server, data):
     bob_proof,bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
     assert tracy.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
     tracy.provided_proof(bob_proof)
+    logging.info('Now its Bobs turn')
+    (provider_id2, test_id2, pin2) = terry.new_test()
+    bob.got_tested(provider_id=provider_id2, test_id=test_id2, pin=pin2)
+    inc_current_time_for_testing()
+    logging.info('Carol polls and should see update from Bob')
+    carol.cron_hourly()  # Carol polls and should see update from Bob
+    inc_current_time_for_testing()
+    logging.info('Bob Test result comes in - he is good. Terry /status/result = TODO informing Bob and Carol')
+    terry.result(test_id2, STATUS_HEALTHY)
+    inc_current_time_for_testing()
+    logging.info('Carol polls and should see status update from Terry')
+    carol.cron_hourly()
+    assert carol.status == STATUS_HEALTHY
+    inc_current_time_for_testing()
+    logging.info('Bob polls and should see status update and also notifies Carol')
+    # TODO got here in testing
+    bob.cron_hourly()
+    assert bob.status == STATUS_HEALTHY
+    inc_current_time_for_testing()
+    logging.info('Carol polls and should see status update from Bob')
+    carol.cron_hourly()
+    assert carol.status == STATUS_HEALTHY
 
 
 def test_pseudoclient_2client(server, data):
@@ -637,7 +694,7 @@ def test_pseudoclient_2client(server, data):
     logging.info("==Bob polls and should see his own status=3(PUI) coming back, but ignore it")
     inc_current_time_for_testing()
     bob.cron_hourly()  # Bob polls and should get the update from alice
-    logging.info('Completed test_pseudoclient_work')
+    logging.info('Completed test_pseudoclient_2client')
 
 
 def test_pseudoclient_multiclient(server, data):
