@@ -10,7 +10,7 @@ import datetime
 logger = logging.getLogger(__name__)
 
 def hash_seed(seed):
-    return hashlib.sha1(seed.encode()).hexdigest()
+    return hashlib.sha1(seed.encode()).hexdigest().upper()
 
 
 def fold_hash(hash40):
@@ -27,19 +27,24 @@ def new_seed(seed_string=None):
         seed_string = random_ascii(8)
     return hash_seed(seed_string)  # first hash_seed is to get size same as updates
 
-def get_provider_seed_string(provider_id, test_id, pin):
-    # Return X a string that can be calculated by an infected person or test provider but noone else
-    return hash_seed(provider_id + test_id + pin)
+def get_provider_daily(provider_id, test_id, pin):
+    return (provider_id + test_id + pin)
 
-def get_id_for_provider(provider_seed_string):
-    # Generate an id that the provider can also generate
-    return hash_seed(provider_seed_string + "TESTING").upper()
+# Get the proof that will be used to generate id's without revealing daily_id
+def get_id_proof(id):
+    return hash_seed(id)
+
+def get_next_id_from_proof(proof, seq):
+    return hash_seed(proof + str(seq))
+
+def get_next_id(id, seq):
+    return get_next_id_from_proof(get_id_proof(id), seq)
 
 # This group of functions centralize the process and cryptography for seed -> replacement_token -> update_token
 
 # Generate Replacement token from seed + n (which should increment)
 # Requirements - none reversible, cannot be used to find the seed, or any other replacement_token
-def replacement_token(seed, n):
+def get_replacement_token(seed, n):
     return hash_seed(seed + str(n))
 
 

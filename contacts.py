@@ -6,7 +6,7 @@ import json
 import rtree
 import copy
 from collections import defaultdict
-from lib import get_update_token, replacement_token, random_ascii, current_time, unix_time_from_iso, \
+from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
     iso_time_from_seconds_since_epoch
 from blist import sortedlist
 
@@ -46,9 +46,12 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
+# DICT.get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
+# DICT.retrieve_json_from_file_paths([file_path]) -> [blob]
 # DICT.retrieve_json_from_file_name(file_name) -> blob
+# DICT.retrieve_json_from_file_names([file_name]) -> [blob]
 # DICT.time_and_serial_number_to_file_path_map[floating_seconds_and_serial] -> file_path
 # ContactDict._key_string_from_blob(blob) -> blob['id']
 # SpatialDict._key_string_from_blob(blob) -> key_string
@@ -94,6 +97,10 @@ class FSBackedThreeLevelDict:
         serial_number = int(parts[2])
         return key, floating_seconds, serial_number
 
+    @staticmethod
+    def _get_file_name_from_parts(key, floating_seconds, serial_number):
+        return '%s:%f:%s.data' % (key, floating_seconds, serial_number)
+
     def _add_to_items(self, key, floating_seconds_and_serial_number):
         bottom_level = self.get_bottom_level_from_key(key)  # { key: [(floating_seconds, serial)]
         if key in bottom_level:  # Already at least one item for this key
@@ -121,7 +128,11 @@ class FSBackedThreeLevelDict:
                     relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
-                    blob = json.load(open('/'.join([root, file_name])))
+                    blob = None
+                    try:
+                        blob = json.load(open('/'.join([root, file_name])))
+                    except Exception as e: # TODO find what kind of exceptions happen and why and handle
+                        pass
                     update_token = blob.get('update_token')
                     self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
                     self._load_key(key, blob)
@@ -187,13 +198,13 @@ class FSBackedThreeLevelDict:
         #    return
         update_token = value.get('update_token')
         if update_token in self.update_index:
-            logger.info("Silently ignoring duplicate of update token: %s" % update_token)
+            logger.info('Silently ignoring duplicate of update token: {update_token}', update_token=update_token)
         else:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
             key = key.upper()
             chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
-            file_name = '%s:%f:%s.data' % (key, floating_seconds, serial_number)
+            file_name = FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)
             relative_file_path = '%s/%s' % (dir_name, file_name)
             # Put in the in-memory data structures
             self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
@@ -209,7 +220,10 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
-        return json.load(open(self.directory + '/' + file_path))
+        try:
+            return json.load(open(self.directory + '/' + file_path))
+        except Exception as e:  # TODO find what kinds of errors occur and why, and handle or fix
+            pass
 
     def retrieve_json_from_file_name(self, file_name):
         return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
@@ -217,6 +231,11 @@ class FSBackedThreeLevelDict:
     def retrieve_json_from_file_paths(self, file_paths):
         for file_path in file_paths:
             yield self.retrieve_json_from_file_path(file_path)
+        return
+
+    def retrieve_json_from_file_names(self, file_names):
+        for file_name in file_names:
+            yield self.retrieve_json_from_file_name(file_name)
         return
 
     def _delete(self, file_path):
@@ -279,6 +298,13 @@ class FSBackedThreeLevelDict:
         chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(components[0])
         return "%s/%s" % (dir_name, file_name)
 
+    def get_blob_from_update_token(self, update_token):
+        file_name = self.update_index.get(update_token)
+        if file_name:
+            return self.retrieve_json_from_file_name(file_name)
+        else:
+            return None
+
     def update(self, updating_token, updates, floating_seconds, serial_number):
         """
         Look for an entry matching updating_token, add a new one after modifying with updates
@@ -289,9 +315,8 @@ class FSBackedThreeLevelDict:
         :param serial_number int
         :return:             True if succeeded
         """
-        file_name = self.update_index.get(updating_token)
-        if file_name:
-            blob = self.retrieve_json_from_file_name(file_name)
+        blob = self.get_blob_from_update_token(updating_token)
+        if blob:
             blob.update(updates)
             self.insert(None, blob, floating_seconds, serial_number)
             return True
@@ -320,7 +345,7 @@ class ContactDict(FSBackedThreeLevelDict):
         if start_pos < 6:
             this_prefix = prefix[start_pos:]
             if len(this_prefix) >= 2:
-                ids = ids.get(this_prefix[0:2])
+                ids = ids.get(this_prefix[0:2].upper())
                 if ids:
                     yield from self._map_over_matching_contacts(prefix, ids, since, now, start_pos + 2)
             else:
@@ -334,7 +359,7 @@ class ContactDict(FSBackedThreeLevelDict):
                     if these_ids:
                         yield from self._map_over_matching_contacts(prefix, these_ids, since, now, start_pos + 2)
         else:
-            for contact_id in filter(lambda x: x.startswith(prefix), ids.keys()):
+            for contact_id in filter(lambda x: x.startswith(prefix.upper()), ids.keys()):
                 for floating_time_and_serial in ids[contact_id]:
                     if _good_date(floating_time_and_serial[0], since, now):
                         yield floating_time_and_serial
@@ -450,7 +475,7 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         """
         bottom_level = self.get_bottom_level_from_key(key)
         chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
-        yield from ["%s/%s:%s:%s.data" % (dir_name, key, floating_seconds, serial_number) for floating_seconds, serial_number in bottom_level[key] if _good_date(floating_seconds, since, now)]
+        yield from ["%s/%s" % (dir_name, FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)) for floating_seconds, serial_number in bottom_level[key] if _good_date(floating_seconds, since, now)]
         return
 
     # Key string will be in the file name, but not in the blob
@@ -577,8 +602,13 @@ class Contacts:
         return serial_number
 
     def _update(self, update_token, updates, floating_time, serial_number):
-        for this_dict in self.contact_dict, self.spatial_dict:
-            this_dict.update(update_token, updates, floating_time, serial_number)
+        """
+        Update in any dict
+        returns: true (and skip rest) if any update succeeded
+        """
+        return any(
+            this_dict.update(update_token, updates, floating_time, serial_number) for this_dict in [self.contact_dict, self.spatial_dict]
+        )
 
     # status_update POST
     # { locations: [{min_lat,update_token,...}], contacts:[{id,update_token, ... }], update_tokens: [ut,...], replaces, status, ... ]
@@ -593,7 +623,7 @@ class Contacts:
             update_tokens = []
         if length:
             for i in range(length):
-                rt = replacement_token(replaces, i)
+                rt = get_replacement_token(replaces, i)
                 ut = get_update_token(rt)
                 updates = {
                     'replaces': rt,
@@ -604,6 +634,7 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
                 if not self._update(ut, updates, floating_seconds, serial_number):
+                    logger.info("Holding update tokens for later {update_token}:{updates}",update_token=ut,updates=str(updates))
                     self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
         return serial_number
@@ -660,6 +691,32 @@ class Contacts:
         )
         # TODO-114 maybe return how many of update_tokens used
         return {"status": "ok"}
+
+    # POST status/data_points
+    @register_method(route='/status/data_points')
+    def status_data_points(self, data, args):
+        seed = data.get('seed')
+        ret = {"contact_ids": [], "locations": []}
+        # TODO-114 consider keeping looking if >MAX_DATA_POINTS_PER_TEST
+        locations = []
+        contact_ids = []
+        for i in range(self.config.getint('MAX_DATA_POINTS_PER_TEST', 256)):
+
+            update_token = get_update_token(get_replacement_token(seed, i))
+            file_name = self.spatial_dict.update_index.get(update_token)
+            if file_name:
+                locations.append(file_name)
+            file_name = self.contact_dict.update_index.get(update_token)
+            if file_name:
+                contact_ids.append(file_name)
+
+        def get_location_id_data():
+            return list(self.spatial_dict.retrieve_json_from_file_names(locations))
+        ret['locations'] = get_location_id_data
+        def get_contact_id_data():
+            return list(self.contact_dict.retrieve_json_from_file_names(contact_ids))
+        ret['contact_ids'] = get_contact_id_data
+        return ret
 
     # sync get
     @register_method(route='/sync')
