@@ -697,7 +697,7 @@ class Contacts:
     @register_method(route='/status/data_points')
     def status_data_points(self, data, args):
         seed = data.get('seed')
-        ret = {"contact_ids": [], "locations": []}
+        ret = {}
         # TODO-114 consider keeping looking if >MAX_DATA_POINTS_PER_TEST
         locations = []
         contact_ids = []
