@@ -8,6 +8,7 @@ from twisted.internet import reactor, task
 from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
+# TODO-DAN code-checker is complaining that "log" isn't being used , is this next line superfluous
 from twisted.python import log
 import json
 from contacts import Contacts
@@ -53,6 +54,7 @@ def receive_signal(signal_number, frame):
     if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
         # testing is set
         logger.info('Testing is set')
+        # noinspection PyBroadException,PyPep8
         try:
             contacts.reset()
         except:  
@@ -188,7 +190,7 @@ class Simple(resource.Resource):
         path = request.path.decode()
         method = request.method.decode()
         path_method = '%s:%s' % (path, method)
-        logger.info('{method} {path}', method = method, path = path)
+        logger.info('{method} {path}', method=method, path=path)
         if method == "OPTIONS":
             request.setResponseCode(204)
             request.responseHeaders.addRawHeader(b"Allow", b"OPTIONS, GET, POST")
@@ -210,17 +212,17 @@ class Simple(resource.Resource):
                 if 'error' in ret:
                     request.setResponseCode(ret.get('status', 400))
                     ret = ret['error']
-                    logger.info('error return is {ret}', ret = ret)
+                    logger.info('error return is {ret}', ret=ret)
                 else:
                     # if any values functions in ret, then run then asynchronously and return None here
                     # if they aren't then return ret
 
                     ret = resolve_all_functions(ret, request)
-                    logger.info('legal return is {ret}', ret = ret)
+                    logger.info('legal return is {ret}', ret=ret)
             else:
                 request.setResponseCode(402)
                 ret = {"error": "no such request"}
-                logger.info('return is {ret}', ret = ret)
+                logger.info('return is {ret}', ret=ret)
             if twserver.NOT_DONE_YET != ret:
                 return json.dumps(ret).encode()
             else:
@@ -243,7 +245,7 @@ def sync_body(body, remote_server):
 
 
 def sync_error(failure):
-    logger.error("Error in connecting to server '{value}'", value = failure.value)
+    logger.error("Error in connecting to server '{value}'", value=failure.value)
     return
 
 
@@ -294,6 +296,7 @@ def delete_expired_data():
     deferred.addCallback(delete_expired_data_success)
     deferred.addErrback(delete_expired_data_failure)
     return
+
 
 if 0 != len(servers):
     l1 = task.LoopingCall(get_data_from_neighbors)
