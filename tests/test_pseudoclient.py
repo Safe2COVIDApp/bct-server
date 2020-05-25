@@ -185,8 +185,6 @@ class Client:
         """
         Check if a location received from a /status/scan is actually close enough to any location
         that we have been at.
-        Note that since the server does not receive a time from the infected person
-        there is no concept of time in this match.
         """
         preprocessed_loc = { "lat": loc['lat'], "long": loc['long'], "start_time": unix_time_from_iso(loc['start_time']), "end_time": unix_time_from_iso(loc['end_time'])}
         return any(Client.close_to(pastloc, preprocessed_loc, self.safe_distance) and Client.time_overlaps(pastloc, preprocessed_loc) for pastloc in self.locations)
