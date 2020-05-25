@@ -4,7 +4,7 @@ import copy
 import math
 from lib import new_seed, get_update_token, get_replacement_token, iso_time_from_seconds_since_epoch, current_time, \
     set_current_time_for_testing, inc_current_time_for_testing, get_next_id_from_proof, \
-    random_ascii, get_next_id, get_provider_daily, get_id_proof
+    random_ascii, get_next_id, get_provider_daily, get_id_proof, unix_time_from_iso
 from threading import Thread
 
 logger = logging.getLogger(__name__)
@@ -170,7 +170,15 @@ class Client:
         TODO-150 see open issue about time
         """
         return math.sqrt(((other_loc['lat'] - loc['lat']) ** 2 +
-                          (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
+              (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
+
+    @staticmethod
+    def time_overlaps(our_loc, their_loc):
+        # See issue#1
+        return (
+            (our_loc['start_time'] <= (their_loc['end_time'] + 3*24*60*60))
+            and (our_loc['end_time'] >= their_loc['start_time'])
+        )
 
     # Received location matches if its close to any of the locations I have been to
     def _location_match(self, loc):
@@ -180,7 +188,8 @@ class Client:
         Note that since the server does not receive a time from the infected person
         there is no concept of time in this match.
         """
-        return any(Client.close_to(pastloc, loc, self.safe_distance) for pastloc in self.locations)
+        preprocessed_loc = { "lat": loc['lat'], "long": loc['long'], "start_time": unix_time_from_iso(loc['start_time']), "end_time": unix_time_from_iso(loc['end_time'])}
+        return any(Client.close_to(pastloc, preprocessed_loc, self.safe_distance) and Client.time_overlaps(pastloc, preprocessed_loc) for pastloc in self.locations)
 
     def poll(self):
         """
@@ -215,7 +224,6 @@ class Client:
         existing_location_update_tokens = [loc.get('update_token') for loc in self.locations]
         self.location_alerts.extend(
             filter(
-                # TODO-150 see open issue about time of match
                 lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens,
                 json_data.get('locations', [])))
 
