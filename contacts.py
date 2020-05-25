@@ -131,8 +131,8 @@ class FSBackedThreeLevelDict:
                     blob = None
                     try:
                         blob = json.load(open('/'.join([root, file_name])))
-                    except Exception as e: # TODO find what kind of exceptions happen and why and handle
-                        pass
+                    except Exception as e:
+                        raise e  # Put a breakpoint here if seeing this fail
                     update_token = blob.get('update_token')
                     self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
                     self._load_key(key, blob)
@@ -222,8 +222,8 @@ class FSBackedThreeLevelDict:
     def retrieve_json_from_file_path(self, file_path):
         try:
             return json.load(open(self.directory + '/' + file_path))
-        except Exception as e:  # TODO find what kinds of errors occur and why, and handle or fix
-            pass
+        except Exception as e:
+            raise e  # Put a breakpoint here if seeing this fail
 
     def retrieve_json_from_file_name(self, file_name):
         return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
@@ -671,10 +671,11 @@ class Contacts:
         update_tokens = data.get('update_tokens')
         # TODO-114 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
         floating_seconds = current_time()
+        status_for_tested = data.get('status')
         serial_number = self.send_or_sync({
             "contact_ids": [{
                 "id": data.get('id'),
-                "status": data.get('status')-1,  # i.e. INFECTED=1 so send 0 to make Alice set her status to 1,
+                "status": status_for_tested,
                 "update_token": update_tokens.pop(),
                 "message": data.get('message')
             }] },
