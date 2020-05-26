@@ -84,8 +84,8 @@ class Server:
         logger.info('after admin_config call')
         return resp
 
-    def status_data_points(self, seed=None, **kwargs): # seed
-        return self._simple_post('/status/data_points', { "seed": seed }, **kwargs)
+    def status_data_points(self, seed=None, **kwargs):  # seed
+        return self._simple_post('/status/data_points', {"seed": seed}, **kwargs)
 
     def result(self, **kwargs):
         return self._simple_post('/status/result', {}, **kwargs)
@@ -95,7 +95,7 @@ class Server:
         current_time = kwargs.get('current_time')
         if current_time:
             headers['X-Testing-Time'] = str(current_time)
-            del kwargs['current_time']  # Dont pass it to query
+            del kwargs['current_time']  # Do not pass it to query
         data.update(kwargs)
         logger.info("Sending %s: %s" % (endpoint_name, str(data)))
         resp = requests.post(self.url + endpoint_name, json=data, headers=headers)

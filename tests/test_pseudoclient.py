@@ -15,15 +15,16 @@ STATUS_PUI = 2
 STATUS_UNKNOWN = 3
 STATUS_HEALTHY = 4
 
-StatusEnglish = [ "Test Positive", "Infected", "Under Investigation", "Unknown", "Healthy"]
+StatusEnglish = ["Test Positive", "Infected", "Under Investigation", "Unknown", "Healthy"]
 
-MAX_DATA_POINTS_PER_TEST = 256 # Should match in confi
+MAX_DATA_POINTS_PER_TEST = 256  # Should match in config
 
 ######
 # This file is intended to give a roadmap for functionality needed in the real (app) client.
 
 
 set_current_time_for_testing(100000)
+
 
 class Client:
 
@@ -44,7 +45,7 @@ class Client:
         self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
         self.location_time_significant = 1  # Time in seconds we want to consider significant (1 for testing)
-        self.expire_locations_seconds = 45  # Would be 45*24*60*60
+        self.expire_locations_seconds = 45*24*60*60  # can test expiration by setting to e.g. 45
 
         # Access generic test functions and data
         self.server = server
@@ -98,31 +99,29 @@ class Client:
             for seq in range(daily_id['len']):
                 yield get_next_id(daily_id_str, seq)
 
-    def find_proof_and_seq(self, id):
+    def find_proof_and_seq(self, id_str):
         """
         This finds proof that this client created this id as part of the support for Contact Tracers
         """
-        if id is None:
-            # Handle case where there is no id in the data point
-            return ""
-        else:
+        if id_str is not None:  # Skip case where there is no id in the data point
             for daily_id in self.daily_ids_used+[self.daily_id]:
                 daily_id_str = daily_id['id']
                 for seq in range(daily_id['len']):
-                    if get_next_id(daily_id_str, seq):
+                    if get_next_id(daily_id_str, seq) == id_str:
                         return get_id_proof(daily_id_str), seq
+        return None
 
-    def new_daily_id(self, id=None):
+    def new_daily_id(self, id_str=None):
         """
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
-        if self.daily_id:
+        if self.daily_id is not None:
             self.daily_id['last_used'] = current_time()
             self.daily_ids_used.append(self.daily_id)
-        self.daily_id = {"id": id or "%X" % random.randrange(0, 2 ** 128), "len": 0}
+        self.daily_id = {"id": id_str or "%X" % random.randrange(0, 2 ** 128), "len": 0}
 
     def new_id(self):
-        self.current_id = get_next_id(self.daily_id['id'],self.daily_id['len'])
+        self.current_id = get_next_id(self.daily_id['id'], self.daily_id['len'])
         self.daily_id['len'] += 1
 
     def move_to(self, loc):
@@ -167,10 +166,10 @@ class Client:
         """
         Calculate if the two locations are closer than distance
         This is a very crude "close_to" function because of the rounding in positions, could obviously be much better.
-        TODO-150 see open issue about time
         """
-        return math.sqrt(((other_loc['lat'] - loc['lat']) ** 2 +
-              (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
+        return math.sqrt((
+                (other_loc['lat'] - loc['lat']) ** 2 +
+                (other_loc['long'] - loc['long']) ** 2)) * scale1meter <= distance
 
     @staticmethod
     def time_overlaps(our_loc, their_loc):
@@ -186,7 +185,9 @@ class Client:
         Check if a location received from a /status/scan is actually close enough to any location
         that we have been at.
         """
-        preprocessed_loc = { "lat": loc['lat'], "long": loc['long'], "start_time": unix_time_from_iso(loc['start_time']), "end_time": unix_time_from_iso(loc['end_time'])}
+        preprocessed_loc = {"lat": loc['lat'], "long": loc['long'],
+                            "start_time": unix_time_from_iso(loc['start_time']),
+                            "end_time": unix_time_from_iso(loc['end_time'])}
         return any(Client.close_to(pastloc, preprocessed_loc, self.safe_distance) and Client.time_overlaps(pastloc, preprocessed_loc) for pastloc in self.locations)
 
     def poll(self):
@@ -204,17 +205,19 @@ class Client:
         # Record any ids in the poll that match one we have used (id = {id, last_used})
         # Note that this can include a test result which might be STATUS_HEALTHY
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
+        for id_obj in matched_ids:
+            id_obj['received_at']=current_time()
         # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
         if self.pending_test:
             for i in matched_ids:
                 if i['id'] == self.pending_test['id']:
                     i['test'] = self.pending_test  # Save the test (includes test_id and pin)
                     self.pending_test = None  # Clear pending test
-                    # Clear out older alerts - TODO-152 this may be more nuanced
+                    # Clear out older alerts - TODO-152 this may be more nuanced - clearing out old alerts
                     self.id_alerts = []
                     self.location_alerts = []
-                    self.local_status = STATUS_HEALTHY # Note this is correct even if the test is INFECTED, as its the infected test that counts, and there is no LOCAL status event any more
-                    break # Currently can only be one pending_test so only one test result can match it
+                    self.local_status = STATUS_HEALTHY  # Note this is correct even if the test is INFECTED, as its the infected test that counts, and there is no LOCAL status event any more
+                    break  # Currently can only be one pending_test so only one test result can match it
         self.id_alerts.extend(matched_ids)  # Add the new ones after we have cleared out alerts no longer valid
 
         # Filter incoming location updates for those close to where we have been,
@@ -327,8 +330,8 @@ class Client:
         self.new_daily_id(provider_daily)  # Saves as ued with len=0
         self.new_id()  # Uses the 0-th and increments
         # Record the NEW current_id as a pending test, when we see a notification (either way) we'll clear this
-        self.pending_test = { "id": self.current_id, "provider_id": provider_id, "test_id": test_id, "pin": pin }
-        self.new_daily_id() # Don't use the special daily id again
+        self.pending_test = {"id": self.current_id, "provider_id": provider_id, "test_id": test_id, "pin": pin}
+        self.new_daily_id()  # Don't use the special daily id again
         self.new_id()  # Uses the 0-th and increments
 
     def local_status_event(self, new_status):
@@ -339,14 +342,16 @@ class Client:
         self.local_status = new_status
         self._recalculate_status()  # This may trigger a /send/status or /send/update
 
-    def _get_status_from_id(self, id):
+    @staticmethod
+    def _get_status_from_id(id_obj):
         # This would be a good heuristic if we wanted to take into account duration of contact for example
-        if id.get('test'):
-            return id['status']        # Believe a test result
+        if id_obj.get('test'):
+            return id_obj['status']        # Believe a test result
         else:
-            return id['status'] + 1    # E.g. Meeting someone infected makes us PUI, meeting someone PUI makes us unknown
+            return id_obj['status'] + 1    # E.g. Meeting someone infected makes us PUI, meeting someone PUI makes us unknown
 
-    def _get_status_from_location(self, loc):
+    @staticmethod
+    def _get_status_from_location(loc):
         # This would be a good heuristic if we wanted to take into account duration of being in location for example
         return loc['status'] + 1
 
@@ -359,9 +364,8 @@ class Client:
 
         Can trigger a /status/send or /status/update
         """
-        id_statuses = []
-        new_status = min([self._get_status_from_id(i) for i in self.id_alerts if not i.get('replaced')]
-                         + [self._get_status_from_location(loc) for loc in self.location_alerts if not loc.get('replaced')]
+        new_status = min([Client._get_status_from_id(i) for i in self.id_alerts if not i.get('replaced')]
+                         + [Client._get_status_from_location(loc) for loc in self.location_alerts if not loc.get('replaced')]
                          + [self.local_status])
         self._notify_status(new_status, seed)  # Correctly handles case of no change and can trigger /status/send or /status/update
         self.status = new_status
@@ -394,32 +398,36 @@ class Client:
         """
         Substitute in a message from a datapoint which might be an id or location
         """
-        proof_and_seq = self.find_proof_and_seq(dp.get('id',None))
+        proof_and_seq = self.find_proof_and_seq(dp.get('id', None))
         return dp.get('message')\
-            .replace('{id}', dp.get('id',""))\
+            .replace('{id}', dp.get('id', ""))\
             .replace('{proof}', proof_and_seq[0] if proof_and_seq else "")
 
     def get_message_data_points(self):
         return [dp for dp in self.id_alerts + self.location_alerts if
-         dp.get('message') and not dp.get('replaced')]
+                dp.get('message') and not dp.get('replaced')]
 
     def show_messages(self):
         """
         If there are alerts then show the user the message.
         """
-        messages = [ self._process_one_message(dp) for dp in self.get_message_data_points() ]
+        messages = [self._process_one_message(dp) for dp in self.get_message_data_points()]
         if len(messages):
             logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
+
+    @staticmethod
+    def _expire_from(our_list, field, expiry_time):
+        while len(our_list) and our_list[0].get(field) < expiry_time:
+            our_list.pop(0)
 
     def expire_data(self):
         """
         Expire old location and id data
         """
         expiry_time = current_time()-self.expire_locations_seconds
-        while len(self.locations) and self.locations[0].get('end_time') < expiry_time:
-            self.locations.pop(0)
-        while len(self.daily_ids_used) and self.daily_ids_used[0].get('last_used') < expiry_time:
-            self.daily_ids_used.pop(0)
+        Client._expire_from(self.locations, 'end_time', expiry_time)
+        Client._expire_from(self.daily_ids_used, 'last_used', expiry_time)
+        Client._expire_from(self.id_alerts, 'received_at', expiry_time)
 
     def cron15(self):
         """
@@ -432,7 +440,7 @@ class Client:
         Action taken every hour - check for updates
         """
         self.poll()  # Performs a /status/scan
-        self.show_messages() # Display any messges (in real client this could be handled various ways
+        self.show_messages()  # Display any messages (in real client this could be handled various ways
         self.expire_data()
 
     def cron_daily(self):
@@ -463,6 +471,8 @@ class Client:
 
         :param step_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
         :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
+        :param tester: ProviderOfTests
+        :param tracer: Tracer
         :return:
         """
         def _chance(s):
@@ -486,19 +496,22 @@ class Client:
             if self.status == STATUS_PUI and not self.pending_test:
                 if any(i.get('message') for i in self.id_alerts):
                     if _chance('chance_of_calling_tracer'):
-                        proof, seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
-                        tracer.provided_proof(proof)
+                        proof_and_seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
+                        if not proof_and_seq:
+                            logging.warn("Invalid data point")
+                        else:
+                            tracer.provided_proof(proof_and_seq[0])
                 elif _chance('chance_of_getting_tested'):
                     (provider_id, test_id, pin) = tester.new_test()
                     self.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
             elif self.pending_test and _chance('chance_of_getting_result'):
-                    # Simulate receiving a test result
-                    test_id = self.pending_test['test_id']
-                    if _chance('chance_of_test_positive'):
-                        tester.result(test_id, STATUS_INFECTED)
-                        tracer.receive_test(tester.send_test(test_id))
-                    else:
-                        tester.result(test_id, STATUS_HEALTHY)
+                # Simulate receiving a test result
+                test_id = self.pending_test['test_id']
+                if _chance('chance_of_test_positive'):
+                    tester.result(test_id, STATUS_INFECTED)
+                    tracer.receive_test(tester.send_test(test_id))
+                else:
+                    tester.result(test_id, STATUS_HEALTHY)
             elif not self.pending_test:
                 # Simulate finding infected by some method
                 if self.status in [STATUS_HEALTHY, STATUS_UNKNOWN] and _chance('chance_of_infection'):
@@ -511,7 +524,7 @@ class Client:
             self.cron_hourly()  # Will poll for any data from server
 
 
-class xTester:
+class ProviderOfTests:
 
     def __init__(self, server, provider_id):
         self.server = server
@@ -523,32 +536,33 @@ class xTester:
         if not pin:
             pin = random_ascii(4)
         self.tests[test_id] = {'pin': pin}
-        return (self.provider_id, test_id, pin)
+        return self.provider_id, test_id, pin
 
     def result(self, test_id, status):
         """
         Tester got a result, which should be STATUS_INFECTED or STATUS_HEALTHY
         """
         test = self.tests[test_id]
-        provider_daily =  get_provider_daily(self.provider_id, test_id, test.get('pin'))
+        provider_daily = get_provider_daily(self.provider_id, test_id, test.get('pin'))
         provider_proof = get_id_proof(provider_daily)  # This is the replaces value Alice will have derived UpdateTokens from
         id_for_provider = get_next_id(provider_daily, 0)  # This is the id that Alice will be watching for
         test['status'] = status
-        length = 256 # How many points to account for - adjust this with experience
+        length = 256  # How many points to account for - adjust this with experience
         test['seed'] = new_seed()
         update_tokens = [get_update_token(get_replacement_token(test['seed'], n)) for n in range(length)]
         message = "Please call 0412-345-6789 to speak to a contact tracer and quote {proof}" if status == STATUS_INFECTED else None
-        json_data = self.server.result(
-            replaces = provider_proof,
-            status = status,
-            update_tokens = update_tokens,
-            id = id_for_provider,
-            message = message
+        return self.server.result(
+            replaces=provider_proof,
+            status=status,
+            update_tokens=update_tokens,
+            id=id_for_provider,
+            message=message
         )
 
     def send_test(self, test_id):
         test = self.tests[test_id]
-        return { "seed": test['seed'], "test_id": test_id}  # Currently, only thing the Tracer needs is the seed, but test_id helps reference
+        return {"seed": test['seed'], "test_id": test_id}  # Currently, only thing the Tracer needs is the seed, but test_id helps reference
+
 
 class Tracer:
 
@@ -575,16 +589,17 @@ class Tracer:
         Find any contact data points that relate to an id generated by the person who provided this proof
         """
         ret = []
-        for seq in range(24*15): # proof cant have been used more than once every 15 mins for a day
-            id = get_next_id_from_proof(proof, seq)
-            if id in self.id_index:
-                ret.append(self.id_index[id])
+        for seq in range(24*15):  # proof cant have been used more than once every 15 mins for a day
+            id_str = get_next_id_from_proof(proof, seq)
+            if id_str in self.id_index:
+                ret.append(self.id_index[id_str])
         return ret
 
     def provided_proof(self, proof):
-        for res in  self.check_provided_proof(proof):
-          logging.info("Test: %s was %s and they were in contact with id %s for %s minutes" %
-                     (res["trace"]["test_id"], StatusEnglish[res["contact"]["status"]], res["contact"]["id"], res["contact"]["duration"]))
+        for res in self.check_provided_proof(proof):
+            logging.info("Test: %s was %s and they were in contact with id %s for %s minutes" %
+                         (res["trace"]["test_id"], StatusEnglish[res["contact"]["status"]], res["contact"]["id"], res["contact"]["duration"]))
+
 
 def test_pseudoclient_test_and_trace(server, data):
     # Standard setup
@@ -606,7 +621,7 @@ def test_pseudoclient_test_and_trace(server, data):
     carol.cron_hourly()  # Bob polls and wont see Bob as hes still healthy
     inc_current_time_for_testing()
     logging.info('Alice gets tested')
-    terry = xTester(server, 'Kaiser')
+    terry = ProviderOfTests(server, 'Kaiser')
     (provider_id, test_id, pin) = terry.new_test()
     alice.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
     inc_current_time_for_testing()
@@ -615,20 +630,19 @@ def test_pseudoclient_test_and_trace(server, data):
     inc_current_time_for_testing()
     logging.info('Test result comes in, terry should /send/result which will set datapoints on server for Bob and Alice')
     terry.result(test_id, STATUS_INFECTED)
-    #TODO-114 think thru side-effect of this as Alice's update doesnt have the message
     logging.info('Bob scans and picks up his status change telling him to call Tracey')
     logging.info('Bob then does a "/status/send 2 which should get to Carol')
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
     inc_current_time_for_testing()
-    logging.info('Alice /status/scan gets result status=0 (TESTPOSITIVE) telling her to call Tracey, and the notice from Bob (which is only PUI so not relevant) and sends update to Bob')
+    logging.info('Alice /status/scan gets result status=0 (INFECTED) telling her to call Tracey, and the notice from Bob (which is only PUI so not relevant) and sends update to Bob')
     alice.cron_hourly()
     assert alice.status == STATUS_INFECTED
     logging.info('Carol polls, and should see the update from Bob with status=2 (PUI)')
     carol.cron_hourly()
     assert carol.status == STATUS_UNKNOWN
     inc_current_time_for_testing()
-    logging.info('Bob does another poll, and gets the update from Alice which is superfluous (becasue of the direct Tester update), nothing should have changed for him')
+    logging.info('Bob does another poll, and gets the update from Alice which is superfluous (because of the direct Tester update), nothing should have changed for him')
     bob.cron_hourly()
     assert bob.status == STATUS_PUI
     logging.info('Tracer gets test from Tester and looks up users')
@@ -636,7 +650,7 @@ def test_pseudoclient_test_and_trace(server, data):
     tracy.receive_test(terry.send_test(test_id))
     assert len(tracy.traces[test_id]["contact_ids"]) == 2  # Saw Alice and Bob
     logging.info('Bob gives Tracey a call')
-    bob_proof,bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
+    bob_proof, bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
     assert tracy.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
     tracy.provided_proof(bob_proof)
     logging.info('Now its Bobs turn')
@@ -654,7 +668,6 @@ def test_pseudoclient_test_and_trace(server, data):
     assert carol.status == STATUS_HEALTHY
     inc_current_time_for_testing()
     logging.info('Bob polls and should see status update and also notifies Carol')
-    # TODO got here in testing
     bob.cron_hourly()
     assert bob.status == STATUS_HEALTHY
     inc_current_time_for_testing()
@@ -735,7 +748,7 @@ def test_pseudoclient_multiclient(server, data):
         cl = Client(server=server, data=data, name=str(len(clients)))
         cl.init(data.init_req)
         clients.append(cl)
-    terry = xTester(server, "Kaiser")
+    terry = ProviderOfTests(server, "Kaiser")
     tracy = Tracer(server)
     logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
     for i in range(simulation_parameters['number_of_initial_clients']):
@@ -746,6 +759,7 @@ def test_pseudoclient_multiclient(server, data):
             _add_client()
         for c in clients:
             c.simulation_step(step_parameters, clients, terry, tracy)
+
 
 def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     """
@@ -767,7 +781,7 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
         'steps': n_steps,                 # Steps each client does on own before back to this level
     }
     clients = []
-    terry = xTester(server, "Kaiser")
+    terry = ProviderOfTests(server, "Kaiser")
     tracy = Tracer(server)
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))

@@ -51,10 +51,11 @@ pip3 install pytest
 PYTHON_BIN=python3 pytest tests
 ```
 
-Pytest temporarily creates a server to test against, to test against a separate server instance try:
+Pytest temporarily creates a server to test against, 
+but you can test against a separate server instance (for example for performance testing) try:
 ```
-python server.py --config_file sample_global_config.ini
-pytest --server=http://localhost:8080 --log_level warn tests/test_pseudoclient.py
+python server.py --config_file sample_global_config.ini --log_level warn
+pytest --server=http://localhost:8080 --log-cli-level warn tests/test_pseudoclient.py
 ```
 log_level can be any of 'debug', 'info', 'warn', 'error', 'critical' and overrides whatever the config file says
 

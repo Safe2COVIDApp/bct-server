@@ -128,7 +128,6 @@ class FSBackedThreeLevelDict:
                     relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
-                    blob = None
                     try:
                         blob = json.load(open('/'.join([root, file_name])))
                     except Exception as e:
@@ -327,6 +326,7 @@ class FSBackedThreeLevelDict:
 class ContactDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
+        logger.info('Loading Contact dict from disk')
         directory = directory + '/contact_dict'
         super().__init__(directory)
 
@@ -380,6 +380,7 @@ class ContactDict(FSBackedThreeLevelDict):
 class SpatialDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
+        logger.info('Loading Spacial dict from disk')
         directory = directory + '/spatial_dict'
         self.spatial_index = rtree.index.Index()  # Geospatial index to key_string
         self.keys = {}  # Maps key_tuple to key_QQ1
@@ -500,6 +501,7 @@ class UpdatesDict(SimpleFSBackedDict):
     # Blob is { status, ... }
 
     def __init__(self, directory):
+        logger.info('Loading Updates dict from disk')
         super().__init__(directory, '/updates_dict')
 
 # contains both the code for the in memory and on disk version of the database
@@ -586,7 +588,7 @@ class Contacts:
     # Common part of both /status/send and sync reception
     def send_or_sync(self, data, repeated_fields=None, floating_seconds=None):
         if not floating_seconds:
-            floating_seconds= current_time()
+            floating_seconds = current_time()
         serial_number = 0
         # first process contacts, then process geocode
         for contact in data.get('contact_ids', []):
@@ -634,7 +636,7 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
                 if not self._update(ut, updates, floating_seconds, serial_number):
-                    logger.info("Holding update tokens for later {update_token}:{updates}",update_token=ut,updates=str(updates))
+                    logger.info("Holding update tokens for later {update_token}:{updates}", update_token=ut, updates=str(updates))
                     self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
         return serial_number
@@ -669,21 +671,21 @@ class Contacts:
     @register_method(route='/status/result')
     def status_result(self, data, args):
         update_tokens = data.get('update_tokens')
-        # TODO-114 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
+        # TODO-152 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
         floating_seconds = current_time()
         status_for_tested = data.get('status')
         serial_number = self.send_or_sync({
-            "contact_ids": [{
+            "contact_ids": [ {
                 "id": data.get('id'),
                 "status": status_for_tested,
                 "update_token": update_tokens.pop(),
                 "message": data.get('message')
-            }] },
+            } ] },
             floating_seconds=floating_seconds
         )
         self._update_or_result(
             length=len(update_tokens),
-            serial_number=serial_number, # send_or_sync will use serial_number=0 and poss 1
+            serial_number=serial_number,  # send_or_sync will use serial_number=0 and poss 1
             floating_seconds=floating_seconds,
             update_tokens=update_tokens,
             replaces=data.get('replaces'),
@@ -714,6 +716,7 @@ class Contacts:
         def get_location_id_data():
             return list(self.spatial_dict.retrieve_json_from_file_names(locations))
         ret['locations'] = get_location_id_data
+
         def get_contact_id_data():
             return list(self.contact_dict.retrieve_json_from_file_names(contact_ids))
         ret['contact_ids'] = get_contact_id_data
@@ -748,15 +751,15 @@ class Contacts:
             data.update(map(lambda item: (item[0], item[1], self.contact_dict),
                             self.contact_dict.map_over_prefixes(prefixes, since, now)))
         else:
-            l = self.contact_dict.sorted_list_by_time_and_serial_number
+            id_list = self.contact_dict.sorted_list_by_time_and_serial_number
             data.update(map(lambda item: (item[0], item[1], self.contact_dict),
-                            l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
+                            id_list[id_list.bisect_left((since, 0)):id_list.bisect_left((now, 0))]))
         if bounding_boxes is not None:
             data.update(map(lambda item: (item[0], item[1], self.spatial_dict),
                             self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
         else:
-            l = self.spatial_dict.sorted_list_by_time_and_serial_number
-            data.update(map(lambda item: (item[0], item[1], self.spatial_dict), l[l.bisect_left((since, 0)):l.bisect_left((now, 0))]))
+            loc_list = self.spatial_dict.sorted_list_by_time_and_serial_number
+            data.update(map(lambda item: (item[0], item[1], self.spatial_dict), loc_list[loc_list.bisect_left((since, 0)):loc_list.bisect_left((now, 0))]))
 
         length = len(data)
 
@@ -812,7 +815,8 @@ class Contacts:
         ret = {
             'bounding_box': self.spatial_dict.bounds,
             'geo_points': len(self.spatial_dict),
-            'contacts_count': len(self.contact_dict)
+            'contacts_count': len(self.contact_dict),
+            'unused_updates_count': len(self.unused_update_tokens)
         }
         return ret
 
@@ -821,7 +825,6 @@ class Contacts:
     def init(self, data, args):
         for k in init_statistics_fields:
             self.statistics[k] += 1
-        # TODO-83
         # app_name = data.get('application_name')
         # app_current_version = self.config_apps.getfloat(app_name + "_VERSION")
         ret = {
@@ -831,8 +834,6 @@ class Contacts:
             "location_resolution": self.location_resolution,  # ~10 meters at the equator
             "prefix_bits": 20,  # TODO-34 will need to calculate this
         }
-        # if app_current_version:
-        #    ret["application_current_version"] = app_current_version  # TODO-83
         return ret
 
     # reset should only be called and allowed if testing

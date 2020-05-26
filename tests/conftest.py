@@ -3,7 +3,8 @@ from . import run_server
 import logging
 logger = logging.getLogger(__name__)
 
-# magic function used by ptest
+
+# magic function used by pytest
 def pytest_addoption(parser):
     parser.addoption("--server", action="store")
 
@@ -33,4 +34,4 @@ def data():
 
 @pytest.fixture(scope="session")
 def server(pytestconfig):
-    yield from run_server(server = pytestconfig.getoption('server'))
+    yield from run_server(server=pytestconfig.getoption('server'))

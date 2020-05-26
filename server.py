@@ -8,6 +8,7 @@ from twisted.internet import reactor, task
 from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
+# TODO-DAN code-checker is complaining that "log" isn't being used , is this next line superfluous
 from twisted.python import log
 import json
 from contacts import Contacts
@@ -44,29 +45,6 @@ def get_config():
 
 config_top = get_config()
 config = config_top['DEFAULT']
-contacts = Contacts(config_top)
-
-
-# noinspection PyUnusedLocal
-def receive_signal(signal_number, frame):
-    logger.info('Received signal: {signal_number}', signal_number=signal_number)
-    if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
-        # testing is set
-        logger.info('Testing is set')
-        try:
-            contacts.reset()
-        except:  
-            logger.failure('error resetting, exiting')
-            reactor.stop()
-    return
-
-
-signal.signal(signal.SIGUSR1, receive_signal)
-
-atexit.register(contacts.close)
-
-servers_file_path = '%s/.servers' % config['directory']
-
 
 mlog_file_path = config.get('log_file_path')
 log_observer = None
@@ -86,7 +64,7 @@ def reset_log_file():
 
     mlog_observer = FilteringLogObserver(textFileLogObserver(mlog_file), predicates=[info_predicate])
     globalLogPublisher.addObserver(mlog_observer)
-    
+
     # logger.info('resetting log output file')
     return
 
@@ -94,7 +72,33 @@ def reset_log_file():
 reset_log_file()
 logger = Logger()
 globalLogBeginner.beginLoggingTo([])
-logger.info('starting server')
+
+contacts = Contacts(config_top)
+
+
+# noinspection PyUnusedLocal
+def receive_signal(signal_number, frame):
+    logger.info('Received signal: {signal_number}', signal_number=signal_number)
+    if ('True' == config.get('Testing')) and (signal.SIGUSR1 == signal_number):
+        # testing is set
+        logger.info('Testing is set')
+        # noinspection PyBroadException,PyPep8
+        try:
+            contacts.reset()
+        except:  
+            logger.failure('error resetting, exiting')
+            reactor.stop()
+    return
+
+
+signal.signal(signal.SIGUSR1, receive_signal)
+
+atexit.register(contacts.close)
+
+servers_file_path = '%s/.servers' % config['directory']
+
+
+logger.info('loading server')
 
 try:
     servers = json.load(open(servers_file_path))
@@ -188,7 +192,7 @@ class Simple(resource.Resource):
         path = request.path.decode()
         method = request.method.decode()
         path_method = '%s:%s' % (path, method)
-        logger.info('{method} {path}', method = method, path = path)
+        logger.info('{method} {path}', method=method, path=path)
         if method == "OPTIONS":
             request.setResponseCode(204)
             request.responseHeaders.addRawHeader(b"Allow", b"OPTIONS, GET, POST")
@@ -210,17 +214,17 @@ class Simple(resource.Resource):
                 if 'error' in ret:
                     request.setResponseCode(ret.get('status', 400))
                     ret = ret['error']
-                    logger.info('error return is {ret}', ret = ret)
+                    logger.info('error return is {ret}', ret=ret)
                 else:
                     # if any values functions in ret, then run then asynchronously and return None here
                     # if they aren't then return ret
 
                     ret = resolve_all_functions(ret, request)
-                    logger.info('legal return is {ret}', ret = ret)
+                    logger.info('legal return is {ret}', ret=ret)
             else:
                 request.setResponseCode(402)
                 ret = {"error": "no such request"}
-                logger.info('return is {ret}', ret = ret)
+                logger.info('return is {ret}', ret=ret)
             if twserver.NOT_DONE_YET != ret:
                 return json.dumps(ret).encode()
             else:
@@ -243,7 +247,7 @@ def sync_body(body, remote_server):
 
 
 def sync_error(failure):
-    logger.error("Error in connecting to server '{value}'", value = failure.value)
+    logger.error("Error in connecting to server '{value}'", value=failure.value)
     return
 
 
@@ -295,6 +299,7 @@ def delete_expired_data():
     deferred.addErrback(delete_expired_data_failure)
     return
 
+
 if 0 != len(servers):
     l1 = task.LoopingCall(get_data_from_neighbors)
     l1.start(float(config.get('neighbor_sync_period', 600.0)))
@@ -303,10 +308,13 @@ l2 = task.LoopingCall(delete_expired_data)
 l2.start(24*60*60)
 
 site = twserver.Site(Simple())
-reactor.listenTCP(int(config.get('port', 8080)), site)
+port = int(config.get('port', 8080))
+reactor.listenTCP(port, site)
 
 # gack, we can't reset this... we will try at another time
 # l = task.LoopingCall(reset_log_file)
 # l.start(10, now = False)
 
+# This is intentionally at warn level to allow when debugging to wait for it to be ready
+logger.warn('Server alive and listening on port %s' % port)
 reactor.run()
