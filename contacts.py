@@ -815,7 +815,8 @@ class Contacts:
         ret = {
             'bounding_box': self.spatial_dict.bounds,
             'geo_points': len(self.spatial_dict),
-            'contacts_count': len(self.contact_dict)
+            'contacts_count': len(self.contact_dict),
+            'unused_updates_count': len(self.unused_update_tokens)
         }
         return ret
 
