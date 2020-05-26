@@ -45,6 +45,34 @@ def get_config():
 
 config_top = get_config()
 config = config_top['DEFAULT']
+
+mlog_file_path = config.get('log_file_path')
+log_observer = None
+
+
+def reset_log_file():
+    global log_observer
+    if log_observer:
+        print('removing log observer')
+        globalLogPublisher.removeObserver(log_observer)
+    log_level = parsed_args.log_level or config['log_level']
+    info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(log_level.lower()))
+    if mlog_file_path:
+        mlog_file = open(mlog_file_path, 'a+')
+    else:
+        mlog_file = sys.stderr
+
+    mlog_observer = FilteringLogObserver(textFileLogObserver(mlog_file), predicates=[info_predicate])
+    globalLogPublisher.addObserver(mlog_observer)
+
+    # logger.info('resetting log output file')
+    return
+
+
+reset_log_file()
+logger = Logger()
+globalLogBeginner.beginLoggingTo([])
+
 contacts = Contacts(config_top)
 
 
@@ -70,33 +98,7 @@ atexit.register(contacts.close)
 servers_file_path = '%s/.servers' % config['directory']
 
 
-mlog_file_path = config.get('log_file_path')
-log_observer = None
-
-
-def reset_log_file():
-    global log_observer
-    if log_observer:
-        print('removing log observer')
-        globalLogPublisher.removeObserver(log_observer)
-    log_level = parsed_args.log_level or config['log_level']
-    info_predicate = LogLevelFilterPredicate(LogLevel.levelWithName(log_level.lower()))
-    if mlog_file_path:
-        mlog_file = open(mlog_file_path, 'a+')
-    else:
-        mlog_file = sys.stderr
-
-    mlog_observer = FilteringLogObserver(textFileLogObserver(mlog_file), predicates=[info_predicate])
-    globalLogPublisher.addObserver(mlog_observer)
-    
-    # logger.info('resetting log output file')
-    return
-
-
-reset_log_file()
-logger = Logger()
-globalLogBeginner.beginLoggingTo([])
-logger.info('starting server')
+logger.info('loading server')
 
 try:
     servers = json.load(open(servers_file_path))
@@ -306,10 +308,13 @@ l2 = task.LoopingCall(delete_expired_data)
 l2.start(24*60*60)
 
 site = twserver.Site(Simple())
-reactor.listenTCP(int(config.get('port', 8080)), site)
+port = int(config.get('port', 8080))
+reactor.listenTCP(port, site)
 
 # gack, we can't reset this... we will try at another time
 # l = task.LoopingCall(reset_log_file)
 # l.start(10, now = False)
 
+# This is intentionally at warn level to allow when debugging to wait for it to be ready
+logger.warn('Server alive and listening on port %s' % port)
 reactor.run()

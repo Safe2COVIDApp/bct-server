@@ -326,6 +326,7 @@ class FSBackedThreeLevelDict:
 class ContactDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
+        logger.info('Loading Contact dict from disk')
         directory = directory + '/contact_dict'
         super().__init__(directory)
 
@@ -379,6 +380,7 @@ class ContactDict(FSBackedThreeLevelDict):
 class SpatialDict(FSBackedThreeLevelDict):
 
     def __init__(self, directory):
+        logger.info('Loading Spacial dict from disk')
         directory = directory + '/spatial_dict'
         self.spatial_index = rtree.index.Index()  # Geospatial index to key_string
         self.keys = {}  # Maps key_tuple to key_QQ1
@@ -499,6 +501,7 @@ class UpdatesDict(SimpleFSBackedDict):
     # Blob is { status, ... }
 
     def __init__(self, directory):
+        logger.info('Loading Updates dict from disk')
         super().__init__(directory, '/updates_dict')
 
 # contains both the code for the in memory and on disk version of the database
