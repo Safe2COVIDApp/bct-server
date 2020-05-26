@@ -103,21 +103,19 @@ class Client:
         """
         This finds proof that this client created this id as part of the support for Contact Tracers
         """
-        if id_str is None:
-            # Handle case where there is no id in the data point
-            return ""
-        else:
+        if id_str is not None:  # Skip case where there is no id in the data point
             for daily_id in self.daily_ids_used+[self.daily_id]:
                 daily_id_str = daily_id['id']
                 for seq in range(daily_id['len']):
                     if get_next_id(daily_id_str, seq) == id_str:
                         return get_id_proof(daily_id_str), seq
+        return None
 
     def new_daily_id(self, id_str=None):
         """
         The client's id is set to a new random value, and a record is kept of what we have used.
         """
-        if self.daily_id:
+        if self.daily_id is not None:
             self.daily_id['last_used'] = current_time()
             self.daily_ids_used.append(self.daily_id)
         self.daily_id = {"id": id_str or "%X" % random.randrange(0, 2 ** 128), "len": 0}
@@ -467,7 +465,7 @@ class Client:
 
         :param step_parameters: { steps, chance_of_walking, chance_of_test_positive, chance_of_infection, chance_of_recovery, bluetooth_range }
         :param readonly_clients: [ client ] an array of clients - READONLY to this thread, so that its thread safe.
-        :param tester: TestProvider
+        :param tester: ProviderOfTests
         :param tracer: Tracer
         :return:
         """
@@ -492,8 +490,11 @@ class Client:
             if self.status == STATUS_PUI and not self.pending_test:
                 if any(i.get('message') for i in self.id_alerts):
                     if _chance('chance_of_calling_tracer'):
-                        proof, seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
-                        tracer.provided_proof(proof)
+                        proof_and_seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
+                        if not proof_and_seq:
+                            logging.warn("Invalid data point")
+                        else:
+                            tracer.provided_proof(proof_and_seq[0])
                 elif _chance('chance_of_getting_tested'):
                     (provider_id, test_id, pin) = tester.new_test()
                     self.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
@@ -517,7 +518,7 @@ class Client:
             self.cron_hourly()  # Will poll for any data from server
 
 
-class TestProvider:
+class ProviderOfTests:
 
     def __init__(self, server, provider_id):
         self.server = server
@@ -614,7 +615,7 @@ def test_pseudoclient_test_and_trace(server, data):
     carol.cron_hourly()  # Bob polls and wont see Bob as hes still healthy
     inc_current_time_for_testing()
     logging.info('Alice gets tested')
-    terry = TestProvider(server, 'Kaiser')
+    terry = ProviderOfTests(server, 'Kaiser')
     (provider_id, test_id, pin) = terry.new_test()
     alice.got_tested(provider_id=provider_id, test_id=test_id, pin=pin)
     inc_current_time_for_testing()
@@ -741,7 +742,7 @@ def test_pseudoclient_multiclient(server, data):
         cl = Client(server=server, data=data, name=str(len(clients)))
         cl.init(data.init_req)
         clients.append(cl)
-    terry = TestProvider(server, "Kaiser")
+    terry = ProviderOfTests(server, "Kaiser")
     tracy = Tracer(server)
     logging.info("Creating %s clients" % simulation_parameters['number_of_initial_clients'])
     for i in range(simulation_parameters['number_of_initial_clients']):
@@ -774,7 +775,7 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
         'steps': n_steps,                 # Steps each client does on own before back to this level
     }
     clients = []
-    terry = TestProvider(server, "Kaiser")
+    terry = ProviderOfTests(server, "Kaiser")
     tracy = Tracer(server)
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
