@@ -45,7 +45,7 @@ class Client:
         self.bounding_box_minimum_dp = 2  # Updated after init - 2 is 1km
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
         self.location_time_significant = 1  # Time in seconds we want to consider significant (1 for testing)
-        self.expire_locations_seconds = 45  # Would be 45*24*60*60
+        self.expire_locations_seconds = 45*24*60*60  # can test expiration by setting to e.g. 45
 
         # Access generic test functions and data
         self.server = server
@@ -205,6 +205,8 @@ class Client:
         # Record any ids in the poll that match one we have used (id = {id, last_used})
         # Note that this can include a test result which might be STATUS_HEALTHY
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
+        for id_obj in matched_ids:
+            id_obj['received_at']=current_time()
         # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
         if self.pending_test:
             for i in matched_ids:
@@ -413,15 +415,19 @@ class Client:
         if len(messages):
             logging.info("%s: Should be displayed messages: %s", self.name, ';'.join(messages))
 
+    @staticmethod
+    def _expire_from(our_list, field, expiry_time):
+        while len(our_list) and our_list[0].get(field) < expiry_time:
+            our_list.pop(0)
+
     def expire_data(self):
         """
         Expire old location and id data
         """
         expiry_time = current_time()-self.expire_locations_seconds
-        while len(self.locations) and self.locations[0].get('end_time') < expiry_time:
-            self.locations.pop(0)
-        while len(self.daily_ids_used) and self.daily_ids_used[0].get('last_used') < expiry_time:
-            self.daily_ids_used.pop(0)
+        Client._expire_from(self.locations, 'end_time', expiry_time)
+        Client._expire_from(self.daily_ids_used, 'last_used', expiry_time)
+        Client._expire_from(self.id_alerts, 'received_at', expiry_time)
 
     def cron15(self):
         """
