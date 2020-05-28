@@ -273,8 +273,7 @@ class FSBackedThreeLevelDict:
         until -- unix time
         """
 
-        deletion_list = list(self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):
-                                                                        self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))])
+        deletion_list = list(self.sorted_list_by_time_and_serial_number_range(since, until))
         self.move_data_list_to_deletion(deletion_list)
 
     def move_data_list_to_deletion(self, deletion_list):
@@ -322,6 +321,8 @@ class FSBackedThreeLevelDict:
         else:
             return False
 
+    def sorted_list_by_time_and_serial_number_range(self, since, until):
+        return self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))]
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -367,7 +368,7 @@ class ContactDict(FSBackedThreeLevelDict):
 
     def map_over_prefixes(self, prefixes, since, now):
         """
-        Return relative file paths that match the prefix and are between the times
+        Return iter [(floating_seconds,serial)] that match the prefix and are between the times
         """
         for prefix in prefixes:
             yield from self._map_over_matching_contacts(prefix, self.items, since, now)
@@ -436,6 +437,44 @@ class SpatialDict(FSBackedThreeLevelDict):
     def bounds(self):
         return self.spatial_index.bounds
 
+
+    def _flatten(self, list_of_iterators):
+        # returns iter [ x ] from [ iter [x], iter [x]]
+        for it in list_of_iterators:
+            yield from it
+        return
+
+    def _intersections(self, bounding_boxes):
+        # returns iter [ obj* ]
+        for bounding_box in bounding_boxes:
+            yield from self.spatial_index.intersection(bounding_box, objects=True)
+        return
+
+    def _floating_time_and_serial_list_from_key(self, key):
+        return self.get_bottom_level_from_key(key)[key]
+
+
+
+    # TODO-42 - On a 60-client; 60-step pseudo-client test A is approx 10% faster than D, C is approx 20% slower than D
+    # A: Inside out maps; C List D old yield
+    def list_over_bounding_boxes_A(self, bounding_boxes, since, now):
+        return list(
+            filter(lambda floating_time_and_serial: _good_date(floating_time_and_serial[0], since, now), # [ fps ] ::= matching_time & bbox
+                self._flatten(                                                                           # [ fps ] ::= mathches bbpx
+                    map(lambda key: self.get_bottom_level_from_key(key)[key],                            # [[ fps ]] ::= matches bbox
+                        map(lambda obj: obj.object,                                                      # [ key ] :: matches bbox
+                            self._intersections(bounding_boxes))))))
+    """
+    def list_over_bounding_boxes_C(self, bounding_boxes, since, now):
+        return [ floating_time_and_serial for bounding_box in bounding_boxes for obj in self.spatial_index.intersection(bounding_box, objects=True) for floating_time_and_serial in self._floating_time_and_serial_list_from_key(obj.object) if _good_date(floating_time_and_serial[0], since, now) ]
+    """
+    def list_over_bounding_boxes(self, bounding_boxes, since, now):
+        return self.list_over_bounding_boxes_A(bounding_boxes, since, now)
+
+    """
+    def list_over_bounding_boxes_D(self, bounding_boxes, since, now):
+        return list(self.map_over_bounding_boxes(bounding_boxes, since, now))
+    
     # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
     # return floating_time_and_serial
     def map_over_bounding_boxes(self, bounding_boxes, since, now):
@@ -446,6 +485,7 @@ class SpatialDict(FSBackedThreeLevelDict):
                     if _good_date(floating_time_and_serial[0], since, now):
                         yield floating_time_and_serial
         return
+    """
 
     def _key_string_from_blob(self, blob):
         key_tuple = SpatialDict._key_tuple_from_blob(blob)
@@ -620,7 +660,10 @@ class Contacts:
         self._update_or_result(serial_number=0, floating_seconds=current_time(), **data)
         return {"status": "ok"}
 
-    def _update_or_result(self, length=0, serial_number=0, floating_seconds=None, update_tokens=None, replaces=None, status=None, message=None, **kwargs):
+    def _update_or_result(self, length=0, serial_number=0, floating_seconds=None, update_tokens=None,
+                          max_missing_updates=None, replaces=None, status=None, message=None, **kwargs):
+        if max_missing_updates is None:
+            max_missing_updates = length
         if not update_tokens:
             update_tokens = []
         if length:
@@ -636,8 +679,11 @@ class Contacts:
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
                 if not self._update(ut, updates, floating_seconds, serial_number):
-                    logger.info("Holding update tokens for later {update_token}:{updates}", update_token=ut, updates=str(updates))
-                    self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
+                    if max_missing_updates:
+                        # TODO-42 rework this to use consecutive missing as the measure not total
+                        max_missing_updates -= 1
+                        logger.info("Holding update tokens for later {update_token}:{updates}", update_token=ut, updates=str(updates))
+                        self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
         return serial_number
 
@@ -676,10 +722,11 @@ class Contacts:
         status_for_tested = data.get('status')
         serial_number = self.send_or_sync({
             "contact_ids": [ {
-                "id": data.get('id'),
+                "id": data.get("id"),
                 "status": status_for_tested,
+                "duration": data.get("duration"),
                 "update_token": update_tokens.pop(),
-                "message": data.get('message')
+                "message": data.get("message")
             } ] },
             floating_seconds=floating_seconds
         )
@@ -690,7 +737,8 @@ class Contacts:
             update_tokens=update_tokens,
             replaces=data.get('replaces'),
             status=data.get('status'),
-            message=data.get('message')
+            message=data.get('message'),
+            max_missing_updates=10,  # TODO-MITRA check this, its just a guess for testing, but note we expect updates to propogate before test results
         )
         # TODO-114 maybe return how many of update_tokens used
         return {"status": "ok"}
@@ -736,6 +784,35 @@ class Contacts:
         number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
         return self._scan_or_sync(None, None, since, now, number_to_return)
 
+    def _sort_and_truncate(self, number_to_return, contacts, locations):
+        """
+        contacts [(floating_seconds, serial)]
+        locations [(floating_seconds, serial)
+        returns [ contacts, locations ] with max length items
+        """
+        if (len(contacts) + len(locations) <= number_to_return):
+            return contacts, locations, None
+        else:
+            data = []
+            data.extend(map(lambda floating_seconds_and_serial: (floating_seconds_and_serial, self.contact_dict), contacts))
+            data.extend(map(lambda floating_seconds_and_serial: (floating_seconds_and_serial, self.spatial_dict), locations))
+            length = len(data)
+
+            # create a dict index by either contact_dict or spatial_dict
+            lists_to_return = {self.contact_dict: [],  # file_paths
+                               self.spatial_dict: []}  # file_paths
+            data.sort(key=lambda k: k[0])
+            truncated_data = data[0:number_to_return]
+
+            for datum in truncated_data:
+                the_dict = datum[1]
+                lists_to_return[datum[1]].append(datum[0])
+
+            contacts = lists_to_return[self.contact_dict]   # [(floating_seconds, serial_number)
+            locations = lists_to_return[self.spatial_dict]  # [(floating_seconds, serial_number)
+            latest_time = data[number_to_return][0][0]
+            return contacts, locations, latest_time
+
     def _scan_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
         """
         Common part of /status/sync and /sync
@@ -746,54 +823,36 @@ class Contacts:
         """
         # correlate the two dictionaries
         # sorted list of (timecode, serial_number, listL_type) between since and until
-        data = sortedlist(key=lambda k: k[0])
-        if prefixes is not None:
-            data.update(map(lambda item: (item[0], item[1], self.contact_dict),
-                            self.contact_dict.map_over_prefixes(prefixes, since, now)))
-        else:
-            id_list = self.contact_dict.sorted_list_by_time_and_serial_number
-            data.update(map(lambda item: (item[0], item[1], self.contact_dict),
-                            id_list[id_list.bisect_left((since, 0)):id_list.bisect_left((now, 0))]))
-        if bounding_boxes is not None:
-            data.update(map(lambda item: (item[0], item[1], self.spatial_dict),
-                            self.spatial_dict.map_over_bounding_boxes(bounding_boxes, since, now)))
-        else:
-            loc_list = self.spatial_dict.sorted_list_by_time_and_serial_number
-            data.update(map(lambda item: (item[0], item[1], self.spatial_dict), loc_list[loc_list.bisect_left((since, 0)):loc_list.bisect_left((now, 0))]))
+        contacts_full = list(self.contact_dict.map_over_prefixes(prefixes, since, now)) \
+            if prefixes is not None else \
+            self.contact_dict.sorted_list_by_time_and_serial_number_range(since, now)
+        locations_full = self.spatial_dict.list_over_bounding_boxes(bounding_boxes, since, now) \
+            if bounding_boxes is not None else \
+            self.spatial_dict.sorted_list_by_time_and_serial_number_range(since, now)
 
-        length = len(data)
+        contacts_floating_seconds_and_serial, locations_floating_seconds_and_serial, latest_time = \
+            self._sort_and_truncate(number_to_return, contacts_full, locations_full)
 
-        # create a dict index by either contact_dict or spatial_dict
-        lists_to_return = {self.contact_dict: [],  # file_paths
-                           self.spatial_dict: []}  # file_paths
-        # truncate the list
+        contacts_file_path = [ self.contact_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
+                               for floating_seconds_and_serial in contacts_floating_seconds_and_serial ]
+        locations_file_path = [ self.spatial_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
+                               for floating_seconds_and_serial in locations_floating_seconds_and_serial ]
 
-        truncated_data = data[0:min(length, number_to_return)]
-        for datum in truncated_data:
-            the_dict = datum[2]
-            lists_to_return[datum[2]].append(the_dict.time_and_serial_number_to_file_path_map[(datum[0], datum[1])])
-            
-        contacts = lists_to_return[self.contact_dict]  # file_paths
-        locations = lists_to_return[self.spatial_dict]  # file_paths
-        
         ret = {'since': iso_time_from_seconds_since_epoch(since),
-               'more_data': number_to_return < length}
-        if ret['more_data']:
-            latest_time = data[number_to_return][0]
-        else:
-            latest_time = now
-        ret['until'] = iso_time_from_seconds_since_epoch(latest_time)
-               
-        if 0 != len(contacts):
+               'more_data': latest_time is not None,
+                'until': iso_time_from_seconds_since_epoch(latest_time or now)
+              }
+
+        if 0 != len(contacts_file_path):
             def get_contact_id_data():
-                return list(self.contact_dict.retrieve_json_from_file_paths(contacts))
+                return list(self.contact_dict.retrieve_json_from_file_paths(contacts_file_path))
 
             ret['contact_ids'] = get_contact_id_data
         else:
             ret['contact_ids'] = []
-        if 0 != len(locations):
+        if 0 != len(locations_file_path):
             def get_location_id_data():
-                return list(self.spatial_dict.retrieve_json_from_file_paths(locations))
+                return list(self.spatial_dict.retrieve_json_from_file_paths(locations_file_path))
 
             ret['locations'] = get_location_id_data
         else:
