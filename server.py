@@ -8,8 +8,6 @@ from twisted.internet import reactor, task
 from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
-# TODO-DAN code-checker is complaining that "log" isn't being used , is this next line superfluous
-from twisted.python import log
 import json
 from contacts import Contacts
 import configparser
