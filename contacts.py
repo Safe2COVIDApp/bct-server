@@ -730,8 +730,10 @@ class Contacts:
         now = current_time()
         since_string = args.get('since')
 
-        # TODO-DAN what is since_string[0].decode ?
         earliest_allowed = self.config.getint('DAYS_OLDEST_DATA_SENT', 21) * 24 * 60 * 60
+
+        # since_string is a list of since parameters (since named parameters can occur multiple times, data comes in as bytes, and
+        # the decode is to turn it into a string
         since = max(unix_time_from_iso(since_string[0].decode()) if since_string else 1, earliest_allowed)
         number_to_return = int(self.config.get('MAX_SYNC_COUNT', 1000))
         return self._scan_or_sync(None, None, since, now, number_to_return)
