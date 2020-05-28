@@ -1,10 +1,13 @@
 import argparse
 
+import urllib
+from zope.interface.declarations import implementer
+from twisted.web.iweb import IPolicyForHTTPS
 from twisted.logger import globalLogPublisher, Logger, globalLogBeginner
 from twisted.logger import LogLevelFilterPredicate, LogLevel
 from twisted.logger import textFileLogObserver, FilteringLogObserver
 from twisted.web import resource, server as twserver
-from twisted.internet import reactor, task
+from twisted.internet import reactor, task, ssl
 from twisted.internet.threads import deferToThread
 from twisted.web.client import Agent, readBody
 from twisted.web.http_headers import Headers
@@ -106,9 +109,28 @@ try:
 except FileNotFoundError as err:
     servers = {}
 if config.get('servers'):
+    any_https_servers = False
     for server in config.get('servers').split(','):
+        if 'https' == server[0:5].lower():
+            any_https_servers = True
+            logger.info('ssl url, adding client certificat check')
+        
         if server not in servers:
             servers[server] = '1970-01-01T00:00Z'
+
+
+if any_https_servers:
+    client_cert_file = config.get('client_certificate_file')
+    if not client_cert_file:
+        logger.error('SSL server in servers list ({servers_list}), but not client_certificate_file listed', servers_list = config.get('servers'))
+        sys.exit(-1)
+    ssl_certificate = ssl.Certificate.loadPEM(open(client_cert_file).read())
+
+@implementer(IPolicyForHTTPS)
+class SinglePolicy(object):
+    def creatorForNetloc(self, hostname, port):
+        return ssl.optionsForClientTLS(hostname.decode(), clientCertificate = ssl_certificate)
+
 
 allowable_methods = ['/status/scan:POST', '/status/send:POST', '/status/update:POST', '/sync:GET', '/admin/config:GET',
                      '/admin/status:GET', '/status/result:POST', '/status/data_points:POST', '/init:POST']
@@ -267,7 +289,11 @@ def get_data_from_neighbors():
     for remote_server, last_request in servers.items():
         url = '%s/sync?since=%s' % (remote_server, last_request)
         logger.info('getting data from {url}', url=url)
-        agent = Agent(reactor)
+            
+        if any_https_servers:
+            agent = Agent(reactor, SinglePolicy())
+        else:
+            agent = Agent(reactor)
 
         request = agent.request(
             b'GET',
