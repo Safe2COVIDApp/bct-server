@@ -320,7 +320,7 @@ class FSBackedThreeLevelDict:
             (key, floating_seconds, serial_number) = self._get_parts_from_file_path(file_path)
             if current_time() - floating_seconds > self.disk_cache_retention_time:
                 delete(self.disk_cache[file_path])
-        deletion_list = list(self.sorted_list_by_time_and_serial_number_range(since, until))
+        deletion_list = list(self.sorted_list_by_time_and_serial_number_range(since, until, None))
         self.move_data_list_to_deletion(deletion_list)
 
     def move_data_list_to_deletion(self, deletion_list):
@@ -370,8 +370,24 @@ class FSBackedThreeLevelDict:
         else:
             return False
 
-    def sorted_list_by_time_and_serial_number_range(self, since, until):
-        return self.sorted_list_by_time_and_serial_number[self.sorted_list_by_time_and_serial_number.bisect_left((since, 0)):self.sorted_list_by_time_and_serial_number.bisect_left((until, 0))]
+    #TODO-42
+    def _sorted_idx(self, since):
+        return self.sorted_list_by_time_and_serial_number.bisect_left((since, 0))
+
+    #TODO-42
+    def max_until(self, since, until, maximum_results):
+        left = self._sorted_idx(since)
+        if left + maximum_results >= len(self.sorted_list_by_time_and_serial_number):
+            return until
+        else:
+            return self.sorted_list_by_time_and_serial_number[left + maximum_results][0]
+
+    def sorted_list_by_time_and_serial_number_range(self, since, until, maximum_results):
+        # This is only used by /sync as it doesn't filter by prefix or bbox
+        since_idx = self._sorted_idx(since)
+        until_idx = self._sorted_idx(until)
+        right_idx = min(since_idx + maximum_results, until_idx) if maximum_results else until_idx
+        return self.sorted_list_by_time_and_serial_number[since_idx:right_idx]
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -828,6 +844,7 @@ class Contacts:
             latest_time = data[number_to_return][0][0]
             return contacts, locations, latest_time
 
+<<<<<<< HEAD
     def _split_bounding_boxes(self, bounding_boxes):
         """
         Split a bounding_box into an array of bounding boxes each BOUNDING_BOX_MINIMUM_DP size (2DP)
@@ -851,26 +868,29 @@ class Contacts:
                 bboxs.extend([(lat, long) for lat in range(bb1[0],bb1[2]) for long in range(bb1[1], bb1[3])])  # [(int lat*10^2, int long*10^2)]
         return bboxs
 
-    def _scan_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
+    def _scan_or_sync(self, prefixes, bounding_boxes, since, now, maximum_results ):
         """
         Common part of /status/sync and /sync
         returns data structure suitable for Response { contact_ids, locations, since, until, more_data }
-        Data contains at most number_to_return oldest data
+        Data contains at most maximum_results oldest data
         If there is too much data, then more_data=True, and until is the floating_seconds of the next item to return
         Note there might be an issue if there are two items with the same floating_seconds (different serial numbers) but we dedupe on arrival anyway
         """
         bboxs = self._split_bounding_boxes(bounding_boxes)
-        # correlate the two dictionaries
-        # sorted list of (timecode, serial_number, listL_type) between since and until
+        # First figure out the max possible "until" time
+        contacts_max_until = self.contact_dict.max_until(since, now, maximum_results)
+        locations_max_until = self.spatial_dict.max_until(since, now, maximum_results)
+        max_until = min(contacts_max_until, locations_max_until)
+        # Generate full lists, either filtered by prefixes & bounding boxes or the complete set - can use max_until to make sure no more than 2x total results
         contacts_full = list(self.contact_dict.map_over_prefixes(prefixes, since, now)) \
             if prefixes is not None else \
-            self.contact_dict.sorted_list_by_time_and_serial_number_range(since, now)
+            self.contact_dict.sorted_list_by_time_and_serial_number_range(since, max_until, maximum_results)
         locations_full = self.spatial_dict.list_over_bounding_boxes(bboxs, since, now) \
             if bounding_boxes is not None else \
-            self.spatial_dict.sorted_list_by_time_and_serial_number_range(since, now)
+            self.spatial_dict.sorted_list_by_time_and_serial_number_range(since, max_until, maximum_results)
 
         contacts_floating_seconds_and_serial, locations_floating_seconds_and_serial, latest_time = \
-            self._sort_and_truncate(number_to_return, contacts_full, locations_full)
+            self._sort_and_truncate(maximum_results, contacts_full, locations_full)
 
         contacts_file_path = [ self.contact_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
                                for floating_seconds_and_serial in contacts_floating_seconds_and_serial ]
