@@ -5,6 +5,7 @@ import os
 import json
 import rtree
 import copy
+import math
 from collections import defaultdict
 from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
     iso_time_from_seconds_since_epoch, flatten
@@ -392,10 +393,6 @@ class SpatialDict(FSBackedThreeLevelDict):
         logger.info('Loading Spatial dict from disk')
         directory = directory + '/spatial_dict'
         self.bb_min_dp = bb_min_dp
-        #self.spatial_index = rtree.index.Index()  # Geospatial index to key_string
-        self.coord_index = {} # TODO-42 scaling issue
-        self.keys = {}  # Maps key_tuple to key_QQ1 # TODO-42 scaling issue
-        self.coords = {}  # Maps key_QQ1 to key_tuple # TODO-42 scaling issue
         super().__init__(directory)
         return
 
@@ -404,12 +401,16 @@ class SpatialDict(FSBackedThreeLevelDict):
         return float(blob['lat']), float(blob['long'])
 
     def _load_key(self, key_string, blob):
-        key_tuple = SpatialDict._key_tuple_from_blob(blob)
-        self.keys[key_tuple] = key_string
-        self.coords[key_string] = key_tuple
         return
 
     # _remove_key is unnecessary, there might be other data at this point, and doesnt hurt to leave extra points in place
+
+    def get_key_from_bbox(self, bbox):
+        """"
+        bbox: (lat, long) as ints * 10**bb_min_do
+        """
+        lat,long = bbox
+        return "%0*X%0*X" % (self.bb_min_dp + 3, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 3, (long + 180 * 10 ** self.bb_min_dp))
 
     def _make_key(self, key_tuple):
         """ 
@@ -424,78 +425,38 @@ class SpatialDict(FSBackedThreeLevelDict):
         key_tuple -- (float lat, float long)
 
         """
-        key_string = self.keys.get(key_tuple)
-        if not key_string:
-            key_string = random_ascii(10).upper()
-            self.coords[key_string] = key_tuple
-        return key_string
+        bbox = [ math.floor(l * 10 ** self.bb_min_dp) for l in key_tuple ]
+        return self.get_key_from_bbox(bbox)
 
     def _insert_disk(self, key_string):
         """
-        Subclass dependent part of _insert, add to indexes
+        Subclass dependent part of _insert, add to indexes - dont have anymore
         """
-        (lat, long) = coords = self.coords[key_string]
-
-        # only insert if coords not currently in keys
-        if coords not in self.keys:
-            # we can always use the 0 for the id, duplicates are allowed
-            # self.spatial_index.insert(0, (lat, long, lat, long), obj=key_string)
-            self.keys[coords] = key_string
-        bbox = (int(lat * 10**2), int(lat * 10**2))  # (int lat, int long)
-        if not bbox in self.coord_index:
-            self.coord_index[bbox] = []
-        if not key_string in self.coord_index[bbox]:
-            self.coord_index[bbox].append(key_string)
-        return
+        pass
 
     @property
     def bounds(self):
         # Used by admin/status to see range of locations in play
         # return self.spatial_index.bounds
-        keys = self.coord_index.keys()
-        return (min(k[0] for k in keys), min(k[1] for k in keys), max(k[0] for k in keys), max(k[1] for k in keys))
+        # TODO-166 - redo this (or eliminate)
+        return (0,0,0,0)
 
     def _intersections(self, bboxs):
-        # returns iter [ keystring ]
+        # returns iter [ (floating_seconds, serial) ]
         for bbox in bboxs:
-            if self.coord_index.get(bbox):
-               yield from self.coord_index.get(bbox)
-            # yield from self.spatial_index.intersection(bounding_box, objects=True) # Rtree way
+            key = self.get_key_from_bbox(bbox)
+            bottom_level = self.get_bottom_level_from_key(key)
+            if key in bottom_level:
+               yield from bottom_level[key]
         return
 
     def _floating_time_and_serial_list_from_key(self, key):
         return self.get_bottom_level_from_key(key)[key]
 
-    # TODO-42 - On a 60-client; 60-step pseudo-client test A is approx 10% faster than D, C is approx 20% slower than D
-    # A: Inside out maps; C List D old yield
-    def list_over_bounding_boxes_A(self, bboxs, since, now):
+    def list_over_bounding_boxes(self, bboxs, since, now):
         return list(
             filter(lambda floating_time_and_serial: _good_date(floating_time_and_serial[0], since, now), # [ fps ] ::= matching_time & bbox
-                flatten(                                                                           # [ fps ] ::= mathches bbpx
-                    map(lambda key: self.get_bottom_level_from_key(key)[key],                            # [[ fps ]] ::= matches bbox
-                            self._intersections(bboxs)))))                                          # [ key ] :: matches bbox
-    """
-    def list_over_bounding_boxes_C(self, bounding_boxes, since, now):
-        return [ floating_time_and_serial for bounding_box in bounding_boxes for obj in self.spatial_index.intersection(bounding_box, objects=True) for floating_time_and_serial in self._floating_time_and_serial_list_from_key(obj.object) if _good_date(floating_time_and_serial[0], since, now) ]
-    """
-    def list_over_bounding_boxes(self, bboxs, since, now):
-        return self.list_over_bounding_boxes_A(bboxs, since, now)
-
-    """
-    def list_over_bounding_boxes_D(self, bounding_boxes, since, now):
-        return list(self.map_over_bounding_boxes(bounding_boxes, since, now))
-    
-    # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
-    # return floating_time_and_serial
-    def map_over_bounding_boxes(self, bounding_boxes, since, now):
-        for bounding_box in bounding_boxes:
-            for obj in self.spatial_index.intersection(bounding_box, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
-                key = obj.object
-                for floating_time_and_serial in self.get_bottom_level_from_key(key)[key]:
-                    if _good_date(floating_time_and_serial[0], since, now):
-                        yield floating_time_and_serial
-        return
-    """
+                self._intersections(bboxs)))                                          # [ fts ] :: matches bbox
 
     def _key_string_from_blob(self, blob):
         key_tuple = SpatialDict._key_tuple_from_blob(blob)
