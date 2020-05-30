@@ -66,7 +66,7 @@ class Client:
         self.new_daily_id()
         self.new_id()
         self.current_location = None
-        self.move_to({'lat': 0, 'long': 0})  # In a real client this would be called with GPS results
+        self.move_to({'lat': 0.00001, 'long': 0.00001})  # In a real client this would be called with GPS results (don't use anything that is an int at 4DP)
         # This status changes based on something external to notifications, for example self-reported symptoms or a test result
         self.local_status = STATUS_HEALTHY
         # Status based on local_status but also any alerts from others.
