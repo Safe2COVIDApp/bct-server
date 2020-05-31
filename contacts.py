@@ -6,6 +6,8 @@ import json
 import rtree
 import copy
 import math
+import random
+import time
 from collections import defaultdict
 from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
     iso_time_from_seconds_since_epoch, flatten
@@ -220,10 +222,16 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
-        try:
-            return json.load(open(self.directory + '/' + file_path))
-        except Exception as e:
-            raise e  # Put a breakpoint here if seeing this fail
+        max_tries = 100
+        while True:  # Exits via return or raise
+            max_tries -= 1
+            try:
+                return json.load(open(self.directory + '/' + file_path))
+            except Exception as e:
+                logger.error("Error in retrieve_json_from_file_path {file_path} {e}",file_path=self.directory + '/' + file_path, e=str(e))
+                if max_tries == 0:
+                    raise e  # Put a breakpoint here if seeing this fail
+                time.sleep(random.uniform(0,0.500))   # Wait a little while and try again
 
     def retrieve_json_from_file_name(self, file_name):
         return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
