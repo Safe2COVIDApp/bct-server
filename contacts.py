@@ -48,7 +48,9 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # == And Some Short cuts ....
 # FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
+# FSBackedThreeLevelDict._get_file_name_from_file_path(file_path) -> file_name
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
+# FSBackedThreeLevelDict._get_parts_from_file_path(file_path) -> key, floating_seconds, serial_number
 # DICT.get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.retrieve_json_from_file_path(file_path) -> blob
@@ -62,7 +64,6 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # SpatialDict._make_key(key_tuple) -> key_string
 # key in UpdatesDict -> bool
 # UpdatesDict[key] -> [blob]
-
 
 class FSBackedThreeLevelDict:
 
@@ -80,11 +81,22 @@ class FSBackedThreeLevelDict:
         # { (floating_seconds, serial_number): relative_file_path }
         self.time_and_serial_number_to_file_path_map = {} # TODO-42 scaling issue ?
         self.directory = directory
+        self.disk_cache = {}
+        self.disk_cache_retention_time = 2 * 60 * 60  # TODO-170 make this configured
         os.makedirs(directory, 0o770, exist_ok=True)
         self._load()
         # file paths that are pending deletion
         self.file_paths_to_delete = []
         return
+
+    @staticmethod
+    def _get_parts_from_file_path(file_path):
+        """
+        Pull apart a file name
+        file_path: /xx/yy/zz/key:floating_seconds:serial_number.data
+        returns (key, floating_seconds, serial_number)
+        """
+        return FSBackedThreeLevelDict._get_parts_from_file_name(FSBackedThreeLevelDict._get_file_name_from_file_path(file_path))
 
     @staticmethod
     def _get_parts_from_file_name(file_name):
@@ -135,6 +147,8 @@ class FSBackedThreeLevelDict:
                         blob = json.load(open('/'.join([root, file_name])))
                     except Exception as e:
                         raise e  # Put a breakpoint here if seeing this fail
+                    if current_time() - floating_seconds < self.disk_cache_retention_time:
+                        self.disk_cache[relative_file_path] = blob
                     update_token = blob.get('update_token')
                     self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
                     self._load_key(key, blob)
@@ -213,6 +227,7 @@ class FSBackedThreeLevelDict:
             # Now put in the file system
             os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
             logger.info('writing {value} to {directory}', value=value, directory=self.directory + '/' + relative_file_path)
+            self.disk_cache[relative_file_path] = value
             with open(self.directory + '/' + relative_file_path, 'w') as file:
                 json.dump(value, file)
             self._insert_disk(key)   # Depends on _key_string_from_blob above
@@ -222,6 +237,17 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
+        if file_path in self.disk_cache:
+            return self.disk_cache[file_path]
+        else:
+            (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
+            keep = (current_time() - floating_seconds) < self.disk_cache_retention_time
+            blob = self.retrieve_json_from_file_path_disk(file_path)
+            if keep:
+                self.disk_cache[file_path] = blob
+            return blob
+
+    def retrieve_json_from_file_path_disk(self, file_path):
         max_tries = 100
         while True:  # Exits via return or raise
             max_tries -= 1
@@ -281,7 +307,10 @@ class FSBackedThreeLevelDict:
         since -- unix time 
         until -- unix time
         """
-
+        for file_path in self.disk_cache:
+            (key, floating_seconds, serial_number) = self._get_parts_from_file_path(file_path)
+            if current_time() - floating_seconds > self.disk_cache_retention_time:
+                delete(self.disk_cache[file_path])
         deletion_list = list(self.sorted_list_by_time_and_serial_number_range(since, until))
         self.move_data_list_to_deletion(deletion_list)
 
@@ -290,14 +319,17 @@ class FSBackedThreeLevelDict:
             self.sorted_list_by_time_and_serial_number.remove(item)
             file_path = self.time_and_serial_number_to_file_path_map[item]
             logger.info("moving {file_path} to deletion list", file_path=file_path)
-            file_name = file_path.split('/')[-1]
-            (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_name(file_name)
+            (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
             bottom_level = self.get_bottom_level_from_key(key)
             bottom_level[key].remove(item)
             self.file_paths_to_delete.append(file_path)
             del self.time_and_serial_number_to_file_path_map[item]
             self.item_count -= 1
         return
+
+    @staticmethod
+    def _get_file_name_from_file_path(file_path):
+        return file_path.split('/')[-1]
 
     @staticmethod
     def get_file_path_from_file_name(file_name):
@@ -929,3 +961,4 @@ class Contacts:
         for the_dict in [self.contact_dict, self.spatial_dict, self.unused_update_tokens]:
             the_dict.delete_from_deletion_list()
         return
+
