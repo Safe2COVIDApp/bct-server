@@ -786,6 +786,7 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
         clients.append(c)
+        c.simulate_random_walk(int(10 * math.sqrt(n_clients))) # Spread clients around - has to be in first step so don't record initial ~0,~0 position or contacts with people there
     threads = []
     for c in clients:
         # This next line is the one we want to multithread
