@@ -66,7 +66,7 @@ class Client:
         self.new_daily_id()
         self.new_id()
         self.current_location = None
-        self.move_to({'lat': 0, 'long': 0})  # In a real client this would be called with GPS results
+        self.move_to({'lat': 0.00001, 'long': 0.00001})  # In a real client this would be called with GPS results (don't use anything that is an int at 4DP)
         # This status changes based on something external to notifications, for example self-reported symptoms or a test result
         self.local_status = STATUS_HEALTHY
         # Status based on local_status but also any alerts from others.
@@ -786,6 +786,7 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
         clients.append(c)
+        c.simulate_random_walk(int(10 * math.sqrt(n_clients))) # Spread clients around - has to be in first step so don't record initial ~0,~0 position or contacts with people there
     threads = []
     for c in clients:
         # This next line is the one we want to multithread

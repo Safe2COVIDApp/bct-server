@@ -10,7 +10,7 @@ import random
 import time
 from collections import defaultdict
 from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
-    iso_time_from_seconds_since_epoch
+    iso_time_from_seconds_since_epoch, flatten
 from blist import sortedlist
 
 os.umask(0o007)
@@ -78,7 +78,7 @@ class FSBackedThreeLevelDict:
         # [ (floating_seconds, serial_number)* ] used to order data by time
         self.sorted_list_by_time_and_serial_number = sortedlist(key=lambda key: key[0])
         # { (floating_seconds, serial_number): relative_file_path }
-        self.time_and_serial_number_to_file_path_map = {}
+        self.time_and_serial_number_to_file_path_map = {} # TODO-42 scaling issue ?
         self.directory = directory
         os.makedirs(directory, 0o770, exist_ok=True)
         self._load()
@@ -388,13 +388,19 @@ class ContactDict(FSBackedThreeLevelDict):
 
 
 class SpatialDict(FSBackedThreeLevelDict):
+    """
+    Data is stored as
+    keys: { (float lat, float long): random10}
+    coords: { random10: (float lat, float long) }
+    coord_index: { (int lat, int long): [ key_string ] }
+    spatial_index: rtree
+    """
 
-    def __init__(self, directory):
-        logger.info('Loading Spacial dict from disk')
+
+    def __init__(self, directory, bb_min_dp=2):
+        logger.info('Loading Spatial dict from disk')
         directory = directory + '/spatial_dict'
-        self.spatial_index = rtree.index.Index()  # Geospatial index to key_string
-        self.keys = {}  # Maps key_tuple to key_QQ1
-        self.coords = {}  # Maps key_QQ1 to key_tuple
+        self.bb_min_dp = bb_min_dp
         super().__init__(directory)
         return
 
@@ -403,12 +409,16 @@ class SpatialDict(FSBackedThreeLevelDict):
         return float(blob['lat']), float(blob['long'])
 
     def _load_key(self, key_string, blob):
-        key_tuple = SpatialDict._key_tuple_from_blob(blob)
-        self.keys[key_tuple] = key_string
-        self.coords[key_string] = key_tuple
         return
 
     # _remove_key is unnecessary, there might be other data at this point, and doesnt hurt to leave extra points in place
+
+    def get_key_from_bbox(self, bbox):
+        """"
+        bbox: (lat, long) as ints * 10**bb_min_do
+        """
+        lat,long = bbox
+        return "%0*X%0*X" % (self.bb_min_dp + 3, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 3, (long + 180 * 10 ** self.bb_min_dp))
 
     def _make_key(self, key_tuple):
         """ 
@@ -423,78 +433,38 @@ class SpatialDict(FSBackedThreeLevelDict):
         key_tuple -- (float lat, float long)
 
         """
-        key_string = self.keys.get(key_tuple)
-        if not key_string:
-            key_string = random_ascii(10).upper()
-            self.coords[key_string] = key_tuple
-        return key_string
+        bbox = [ math.floor(l * 10 ** self.bb_min_dp) for l in key_tuple ]
+        return self.get_key_from_bbox(bbox)
 
     def _insert_disk(self, key_string):
         """
-        Subclass dependent part of _insert, add to indexes
+        Subclass dependent part of _insert, add to indexes - dont have anymore
         """
-        (lat, long) = coords = self.coords[key_string]
-
-        # only insert if coords not currently in keys
-        if coords not in self.keys:
-            # we can always use the 0 for the id, duplicates are allowed
-            self.spatial_index.insert(0, (lat, long, lat, long), obj=key_string)
-            self.keys[coords] = key_string
-        return
+        pass
 
     @property
     def bounds(self):
-        return self.spatial_index.bounds
+        # Used by admin/status to see range of locations in play
+        # return self.spatial_index.bounds
+        # TODO-166 - redo this (or eliminate)
+        return (0,0,0,0)
 
-
-    def _flatten(self, list_of_iterators):
-        # returns iter [ x ] from [ iter [x], iter [x]]
-        for it in list_of_iterators:
-            yield from it
-        return
-
-    def _intersections(self, bounding_boxes):
-        # returns iter [ obj* ]
-        for bounding_box in bounding_boxes:
-            yield from self.spatial_index.intersection(bounding_box, objects=True)
+    def _intersections(self, bboxs):
+        # returns iter [ (floating_seconds, serial) ]
+        for bbox in bboxs:
+            key = self.get_key_from_bbox(bbox)
+            bottom_level = self.get_bottom_level_from_key(key)
+            if key in bottom_level:
+               yield from bottom_level[key]
         return
 
     def _floating_time_and_serial_list_from_key(self, key):
         return self.get_bottom_level_from_key(key)[key]
 
-
-
-    # TODO-42 - On a 60-client; 60-step pseudo-client test A is approx 10% faster than D, C is approx 20% slower than D
-    # A: Inside out maps; C List D old yield
-    def list_over_bounding_boxes_A(self, bounding_boxes, since, now):
+    def list_over_bounding_boxes(self, bboxs, since, now):
         return list(
             filter(lambda floating_time_and_serial: _good_date(floating_time_and_serial[0], since, now), # [ fps ] ::= matching_time & bbox
-                self._flatten(                                                                           # [ fps ] ::= mathches bbpx
-                    map(lambda key: self.get_bottom_level_from_key(key)[key],                            # [[ fps ]] ::= matches bbox
-                        map(lambda obj: obj.object,                                                      # [ key ] :: matches bbox
-                            self._intersections(bounding_boxes))))))
-    """
-    def list_over_bounding_boxes_C(self, bounding_boxes, since, now):
-        return [ floating_time_and_serial for bounding_box in bounding_boxes for obj in self.spatial_index.intersection(bounding_box, objects=True) for floating_time_and_serial in self._floating_time_and_serial_list_from_key(obj.object) if _good_date(floating_time_and_serial[0], since, now) ]
-    """
-    def list_over_bounding_boxes(self, bounding_boxes, since, now):
-        return self.list_over_bounding_boxes_A(bounding_boxes, since, now)
-
-    """
-    def list_over_bounding_boxes_D(self, bounding_boxes, since, now):
-        return list(self.map_over_bounding_boxes(bounding_boxes, since, now))
-    
-    # key is a bounding box tuple (min_lat, min_long, max_lat, max_long) as floats
-    # return floating_time_and_serial
-    def map_over_bounding_boxes(self, bounding_boxes, since, now):
-        for bounding_box in bounding_boxes:
-            for obj in self.spatial_index.intersection(bounding_box, objects=True):  # [ object: [ obj, ob], object: [ obj, obj]]
-                key = obj.object
-                for floating_time_and_serial in self.get_bottom_level_from_key(key)[key]:
-                    if _good_date(floating_time_and_serial[0], since, now):
-                        yield floating_time_and_serial
-        return
-    """
+                self._intersections(bboxs)))                                          # [ fts ] :: matches bbox
 
     def _key_string_from_blob(self, blob):
         key_tuple = SpatialDict._key_tuple_from_blob(blob)
@@ -590,9 +560,9 @@ class Contacts:
         self.config = config
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
-        self.spatial_dict = SpatialDict(self.directory_root)
         self.contact_dict = ContactDict(self.directory_root)
         self.bb_min_dp = config.getint('bounding_box_minimum_dp', 2)
+        self.spatial_dict = SpatialDict(self.directory_root, bb_min_dp=self.bb_min_dp)
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = UpdatesDict(self.directory_root)
@@ -824,6 +794,29 @@ class Contacts:
             latest_time = data[number_to_return][0][0]
             return contacts, locations, latest_time
 
+    def _split_bounding_boxes(self, bounding_boxes):
+        """
+        Split a bounding_box into an array of bounding boxes each BOUNDING_BOX_MINIMUM_DP size (2DP)
+        Adjust parameters to be integers
+        bounding_box: (minLat, minLong, maxLat, maxLong)
+        Edge case at -180° latitude, and also if minLong > maxLong (e.g. because use 17900->-17900 as 2° of latitude, not 358°
+        """
+        if bounding_boxes is None:
+            return None
+        bboxs = []
+        for bounding_box in bounding_boxes:
+            bb1 = [int(x * 10 ** self.bb_min_dp) for x in bounding_box]  # Turn into integers at desired resolution of bbox
+            if (bb1[3]<bb1[1]):  # Swap if have min and max lat around other way (check for 180° edge case below)
+                s = bb1[3]
+                bb1[3] = bb1[1]
+                bb1[1] = s
+            if (bb1[3]-bb1[1]) > (180 * 10 ** self.bb_min_dp):  # Handle bounding boxes around the 180° date-line
+                bboxs.extend([(lat, long) for lat in range(bb1[0],bb1[2]) for long in range(-180 * 10 ** self.bb_min_dp, bb1[1])])
+                bboxs.extend([(lat, long) for lat in range(bb1[0], bb1[2]) for long in range(bb1[3], 180 * 10 ** self.bb_min_dp)])
+            else:
+                bboxs.extend([(lat, long) for lat in range(bb1[0],bb1[2]) for long in range(bb1[1], bb1[3])])  # [(int lat*10^2, int long*10^2)]
+        return bboxs
+
     def _scan_or_sync(self, prefixes, bounding_boxes, since, now, number_to_return):
         """
         Common part of /status/sync and /sync
@@ -832,12 +825,13 @@ class Contacts:
         If there is too much data, then more_data=True, and until is the floating_seconds of the next item to return
         Note there might be an issue if there are two items with the same floating_seconds (different serial numbers) but we dedupe on arrival anyway
         """
+        bboxs = self._split_bounding_boxes(bounding_boxes)
         # correlate the two dictionaries
         # sorted list of (timecode, serial_number, listL_type) between since and until
         contacts_full = list(self.contact_dict.map_over_prefixes(prefixes, since, now)) \
             if prefixes is not None else \
             self.contact_dict.sorted_list_by_time_and_serial_number_range(since, now)
-        locations_full = self.spatial_dict.list_over_bounding_boxes(bounding_boxes, since, now) \
+        locations_full = self.spatial_dict.list_over_bounding_boxes(bboxs, since, now) \
             if bounding_boxes is not None else \
             self.spatial_dict.sorted_list_by_time_and_serial_number_range(since, now)
 
