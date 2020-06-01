@@ -46,11 +46,13 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # bounding_box = { maxLat, maxLong, minLat, minLong }
 
 # == And Some Short cuts ....
-# FSBackedThreeLevelDict.get_directory_name_and_chunks(key) -> chunks, dir_name
+# FSBackedThreeLevelDict.get_chunks(key) -> chunks
+# FSBackedThreeLevelDict.get_directory_name(key) -> dir_name
 # FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds, serial_number
 # DICT.get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
+# DICT.get_floating_seconds_and_serial_number_list_from_key(key) -> [floating_seconds_and_serial] or []
 # DICT.retrieve_json_from_file_path(file_path) -> blob
 # DICT.retrieve_json_from_file_paths([file_path]) -> [blob]
 # DICT.retrieve_json_from_file_name(file_name) -> blob
@@ -177,9 +179,12 @@ class FSBackedThreeLevelDict:
         raise NotImplementedError
 
     @staticmethod
-    def get_directory_name_and_chunks(key):
-        chunks = [key[i:i + 2] for i in [0, 2, 4]]
-        return chunks, "/".join(chunks)
+    def get_chunks(key):
+        return [key[i:i + 2] for i in [0, 2, 4]]
+
+    @staticmethod
+    def get_directory_name(key):
+        return "/".join([key[i:i + 2] for i in [0, 2, 4]])
 
     def insert(self, key, value, floating_seconds, serial_number):
         """
@@ -205,7 +210,7 @@ class FSBackedThreeLevelDict:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
             key = key.upper()
-            chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
+            dir_name = FSBackedThreeLevelDict.get_directory_name(key)
             file_name = FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)
             relative_file_path = '%s/%s' % (dir_name, file_name)
             # Put in the in-memory data structures
@@ -262,8 +267,12 @@ class FSBackedThreeLevelDict:
             self._delete(file_path)
         return
 
+    def get_floating_seconds_and_serial_number_list_from_key(self, key):
+        return self.get_bottom_level_from_key(key).get(key) or [] # Could be None
+
     def get_bottom_level_from_key(self, key):
-        chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
+        # TODO-42 optimize just get chunks then get_fpsns_from_key
+        chunks = FSBackedThreeLevelDict.get_chunks(key)
         return self.items[chunks[0]][chunks[1]][chunks[2]]
 
     def move_data_by_key_to_deletion(self, key):
@@ -290,10 +299,8 @@ class FSBackedThreeLevelDict:
             self.sorted_list_by_time_and_serial_number.remove(item)
             file_path = self.time_and_serial_number_to_file_path_map[item]
             logger.info("moving {file_path} to deletion list", file_path=file_path)
-            file_name = file_path.split('/')[-1]
-            (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_name(file_name)
-            bottom_level = self.get_bottom_level_from_key(key)
-            bottom_level[key].remove(item)
+            (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
+            self.get_floating_seconds_and_serial_number_list_from_key(key).remove(item)
             self.file_paths_to_delete.append(file_path)
             del self.time_and_serial_number_to_file_path_map[item]
             self.item_count -= 1
@@ -302,7 +309,7 @@ class FSBackedThreeLevelDict:
     @staticmethod
     def get_file_path_from_file_name(file_name):
         components = file_name.split(':')
-        chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(components[0])
+        dir_name = FSBackedThreeLevelDict.get_directory_name(components[0])
         return "%s/%s" % (dir_name, file_name)
 
     def get_blob_from_update_token(self, update_token):
@@ -451,20 +458,14 @@ class SpatialDict(FSBackedThreeLevelDict):
 
     def _intersections(self, bboxs):
         # returns iter [ (floating_seconds, serial) ]
+        #logger.warn("XXX _intersections bboxs size={size}", size=len(bboxs))
         for bbox in bboxs:
             key = self.get_key_from_bbox(bbox)
-            bottom_level = self.get_bottom_level_from_key(key)
-            if key in bottom_level:
-               yield from bottom_level[key]
+            yield from self.get_floating_seconds_and_serial_number_list_from_key(key)
         return
 
-    def _floating_time_and_serial_list_from_key(self, key):
-        return self.get_bottom_level_from_key(key)[key]
-
     def list_over_bounding_boxes(self, bboxs, since, now):
-        return list(
-            filter(lambda floating_time_and_serial: _good_date(floating_time_and_serial[0], since, now), # [ fps ] ::= matching_time & bbox
-                self._intersections(bboxs)))                                          # [ fts ] :: matches bbox
+        return [floating_time_and_serial for floating_time_and_serial in self._intersections(bboxs) if _good_date(floating_time_and_serial[0], since, now) ]
 
     def _key_string_from_blob(self, blob):
         key_tuple = SpatialDict._key_tuple_from_blob(blob)
@@ -493,9 +494,9 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         """
         returns: [file_path]
         """
-        bottom_level = self.get_bottom_level_from_key(key)
-        chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
-        yield from ["%s/%s" % (dir_name, FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)) for floating_seconds, serial_number in bottom_level[key] if _good_date(floating_seconds, since, now)]
+        floating_seconds_and_serial_number_list = self.get_floating_seconds_and_serial_number_list_from_key(key)
+        dir_name = FSBackedThreeLevelDict.get_directory_name(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
+        yield from ["%s/%s" % (dir_name, FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds, serial_number)) for floating_seconds, serial_number in floating_seconds_and_serial_number_list if _good_date(floating_seconds, since, now)]
         return
 
     # Key string will be in the file name, but not in the blob
@@ -503,7 +504,7 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         raise NotImplementedError
 
     def __contains__(self, key):
-        chunks, dir_name = FSBackedThreeLevelDict.get_directory_name_and_chunks(key)
+        chunks = FSBackedThreeLevelDict.get_chunks(key)
         return key in self.items[chunks[0]][chunks[1]][chunks[2]]
 
     def __getitem__(self, key):
