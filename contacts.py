@@ -3,7 +3,6 @@
 from twisted.logger import Logger
 import os
 import json
-import rtree
 import copy
 import math
 import random
@@ -237,8 +236,9 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
-        if file_path in self.disk_cache:
-            return self.disk_cache[file_path]
+        res = self.disk_cache.get(file_path) # Don't use the "in disk_cache" structure as wouldnt be thread safe
+        if res:
+            return res
         else:
             (key, floating_seconds, serial_number) = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
             keep = (current_time() - floating_seconds) < self.disk_cache_retention_time
