@@ -207,8 +207,8 @@ class Client:
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
         for id_obj in matched_ids:
             id_obj['received_at']=current_time()
-        # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
-        if self.pending_test:
+            # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
+            if self.pending_test:
                 if id_obj['id'] == self.pending_test['id']:
                     id_obj['test'] = self.pending_test  # Save the test (includes test_id and pin)
                     # Time of test -> old dailyids (t-1day) -> ids used on those -> remove id_alerts; location_alerts dated < t-1day
