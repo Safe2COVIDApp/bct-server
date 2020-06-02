@@ -101,6 +101,9 @@ logger.info('loading server')
 try:
     servers = json.load(open(servers_file_path))
     logger.info('read last read date from server neighbors from {servers_file_path}', servers_file_path=servers_file_path)
+except json.JSONDecodeError:
+    logger.error("Bad JSON in server file at {file_path} recovering automatically", file_path=servers_file_path)
+    servers = {}
 except FileNotFoundError as err:
     servers = {}
 if config.get('servers'):
@@ -180,7 +183,13 @@ class Simple(resource.Resource):
 
         content_type_headers = request.requestHeaders.getRawHeaders('content-type')
         if content_type_headers and ('application/json' in content_type_headers):
-            data = json.load(request.content)
+            try:
+                data = json.load(request.content)
+            except json.JSONDecodeError as e:
+                logger.error('Passed bad JSON in request: {content}', content=request.content)
+                request.setResponseCode(500)
+                ret = {"error": "Bad JSON in request"}
+                return ret
         else:
             data = request.content.read()
         logger.info('request content: {data}', data=data)
@@ -212,7 +221,7 @@ class Simple(resource.Resource):
                 if 'error' in ret:
                     request.setResponseCode(ret.get('status', 400))
                     ret = ret['error']
-                    logger.info('error return is {ret}', ret=ret)
+                    logger.error('error return is {ret}', ret=ret)
                 else:
                     # if any values functions in ret, then run then asynchronously and return None here
                     # if they aren't then return ret
@@ -222,7 +231,7 @@ class Simple(resource.Resource):
             else:
                 request.setResponseCode(402)
                 ret = {"error": "no such request"}
-                logger.info('return is {ret}', ret=ret)
+                logger.error('return is {ret}', ret=ret)
             if twserver.NOT_DONE_YET != ret:
                 return json.dumps(ret).encode()
             else:
@@ -231,9 +240,9 @@ class Simple(resource.Resource):
 
 def sync_body(body, remote_server):
     server_name = remote_server  # TODO-119 TODO-67 this will be replaced with a certified name once certificates implemented
-    data = json.loads(body)
+    data = json.loads(body) # TODO-DAN need to handle error (json.JSONDecodeError) here
     logger.info('Response body in sync: {data}, calling send status', data=data)
-    json_data = json.loads(body)
+    json_data = json.loads(body) # TODO-DAN why do we convert the sync result here as well as 2 lines above and sometimes use json_data and sometimes data below?
     for o in json_data.get('contact_ids', []) + json_data.get('locations', []):
         if not o.get('path'):
             o['path'] = []
