@@ -144,15 +144,21 @@ class FSBackedThreeLevelDict:
                     relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
+
                     try:
                         blob = json.load(open('/'.join([root, file_name])))
+                    except json.JSONDecodeError:
+                        logger.error("Bad JSON file at {file_path}", file_path='/'.join([root, file_name]))
+                        blob = None
+                        # Ignore file, leave for diagnosis
                     except Exception as e:
                         raise e  # Put a breakpoint here if seeing this fail
-                    if current_time() - floating_seconds < self.disk_cache_retention_time:
-                        self.disk_cache[relative_file_path] = blob
-                    update_token = blob.get('update_token')
-                    self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
-                    self._load_key(key, blob)
+                    if blob:
+                        if current_time() - floating_seconds < self.disk_cache_retention_time:
+                            self.disk_cache[relative_file_path] = blob
+                        update_token = blob.get('update_token')
+                        self._add_to_items_and_indexes(key, floating_seconds, serial_number, file_name, relative_file_path, update_token)
+                        self._load_key(key, blob)
         return
 
     def _load_key(self, key, blob):
@@ -252,12 +258,15 @@ class FSBackedThreeLevelDict:
                 self.disk_cache[file_path] = blob
             return blob
 
-    def retrieve_json_from_file_path_disk(self, file_path):
+    def retrieve_json_from_file_path_disk(self, file_path): # TODO-177 handle errors gracefully esp JSON ones, though shouldnt happen.
         max_tries = 100
         while True:  # Exits via return or raise
             max_tries -= 1
             try:
                 return json.load(open(self.directory + '/' + file_path))
+            except json.JSONDecodeError as e:
+                logger.error("Bad JSON file at {file_path}", file_path='/'.join([root, file_name]))
+                raise e
             except Exception as e:
                 logger.error("Error in retrieve_json_from_file_path {file_path} {e}",file_path=self.directory + '/' + file_path, e=str(e))
                 if max_tries == 0:
