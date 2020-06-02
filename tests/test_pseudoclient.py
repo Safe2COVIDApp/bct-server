@@ -46,6 +46,7 @@ class Client:
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
         self.location_time_significant = 1  # Time in seconds we want to consider significant (1 for testing)
         self.expire_locations_seconds = 45*24*60*60  # can test expiration by setting to e.g. 45
+        self.on_test_ignore_before = 1 * 25 * 60 * 60 # If get a test (positive or negative) ignore everything more than 1 days prior to it
 
         # Access generic test functions and data
         self.server = server
@@ -212,9 +213,9 @@ class Client:
                 if id_obj['id'] == self.pending_test['id']:
                     id_obj['test'] = self.pending_test  # Save the test (includes test_id and pin)
                     # Time of test -> old dailyids (t-1day) -> ids used on those -> remove id_alerts; location_alerts dated < t-1day
-                    ignore_alerts_before =  self.pending_test["time"] - 1 * 24 * 60 * 60  # TODO-152 parameterize this
+                    ignore_alerts_before =  self.pending_test["time"] - self.on_test_ignore_before
                     self.pending_test = None  # Clear pending test
-                    # Clear out older alerts - TODO-152 this may be more nuanced - clearing out old alerts
+                    # Clear out older alerts
                     for alert_list in self.id_alerts, self.location_alerts:
                         self.id_alerts = [alert_obj for alert_obj in alert_list if alert_obj['received_at'] < ignore_alerts_before]
                     self.local_status = STATUS_HEALTHY  # Note this is correct even if the test is INFECTED, as its the infected test that counts, and there is no LOCAL status event any more
