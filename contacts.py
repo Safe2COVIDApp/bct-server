@@ -72,7 +72,7 @@ class FSBackedThreeLevelDict:
     def dictionary_factory():
         return defaultdict(FSBackedThreeLevelDict.dictionary_factory)
 
-    def __init__(self, directory):
+    def __init__(self, directory, retain_in_cache=120):
         # { AA: { BB: { CC: AABBCCDEF123: [(floating_seconds, serial)] } } }
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
@@ -83,7 +83,7 @@ class FSBackedThreeLevelDict:
         self.time_and_serial_number_to_file_path_map = {} # TODO-42 scaling issue ?
         self.directory = directory
         self.disk_cache = {}
-        self.disk_cache_retention_time = 2 * 60 * 60  # TODO-170 make this configured
+        self.disk_cache_retention_time = retain_in_cache*60  # TODO-170 make this configured
         os.makedirs(directory, 0o770, exist_ok=True)
         self._load()
         # file paths that are pending deletion
@@ -375,10 +375,10 @@ class FSBackedThreeLevelDict:
 
 class ContactDict(FSBackedThreeLevelDict):
 
-    def __init__(self, directory):
+    def __init__(self, directory, **kwargs):
         logger.info('Loading Contact dict from disk')
         directory = directory + '/contact_dict'
-        super().__init__(directory)
+        super().__init__(directory, **kwargs)
 
     def _insert_disk(self, key):
         """
@@ -437,11 +437,11 @@ class SpatialDict(FSBackedThreeLevelDict):
     """
 
 
-    def __init__(self, directory, bb_min_dp=2):
+    def __init__(self, directory, bb_min_dp=2, **kwargs):
         logger.info('Loading Spatial dict from disk')
         directory = directory + '/spatial_dict'
         self.bb_min_dp = bb_min_dp
-        super().__init__(directory)
+        super().__init__(directory, **kwargs)
         return
 
     @staticmethod
@@ -553,9 +553,9 @@ class UpdatesDict(SimpleFSBackedDict):
     # key is update_token
     # Blob is { status, ... }
 
-    def __init__(self, directory):
+    def __init__(self, directory, **kwargs):
         logger.info('Loading Updates dict from disk')
-        super().__init__(directory, '/updates_dict')
+        super().__init__(directory, '/updates_dict', **kwargs)
 
 # contains both the code for the in memory and on disk version of the database
 # The in memory is a four deep hash table where the leaves of the hash are:
@@ -594,12 +594,12 @@ class Contacts:
         self.config = config
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
-        self.contact_dict = ContactDict(self.directory_root)
+        self.contact_dict = ContactDict(self.directory_root, retain_in_cache=config.get('retain_in_cache', 120))
         self.bb_min_dp = config.getint('bounding_box_minimum_dp', 2)
-        self.spatial_dict = SpatialDict(self.directory_root, bb_min_dp=self.bb_min_dp)
+        self.spatial_dict = SpatialDict(self.directory_root, bb_min_dp=self.bb_min_dp, retain_in_cache=config.get('retain_in_cache', 120))
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
-        self.unused_update_tokens = UpdatesDict(self.directory_root)
+        self.unused_update_tokens = UpdatesDict(self.directory_root, retain_in_cache=config.get('retain_in_cache', 120))
         # self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
         # See TODO-76 re saving statistics
         self.statistics = {}
