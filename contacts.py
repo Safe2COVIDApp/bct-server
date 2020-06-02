@@ -484,7 +484,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         bbox: (lat, long) as ints * 10**bb_min_do
         """
         lat,long = bbox
-        return "%0*X%0*X" % (self.bb_min_dp + 3, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 3, (long + 180 * 10 ** self.bb_min_dp))
+        return "%0*X%0*X" % (self.bb_min_dp + 2, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 2, (long + 180 * 10 ** self.bb_min_dp))
 
     def _make_key(self, key_tuple):
         """ 
@@ -508,7 +508,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         """
         pass
 
-    def _intersections(self, bboxs):
+    def _intersections(self, bboxs): # TODO-42 maybe compress into a single yield
         # returns iter [ (floating_seconds, serial) ]
         #logger.warn("XXX _intersections bboxs size={size}", size=len(bboxs))
         for bbox in bboxs:
