@@ -593,6 +593,7 @@ class Contacts:
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
         self.unused_update_tokens = UpdatesDict(self.directory_root, retain_in_cache=config.get('retain_in_cache', 120))
+        self.max_missing_updates = config.get('max_missing_updates', 10)
         # self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
         # See TODO-76 re saving statistics
         self.statistics = {}
@@ -668,10 +669,14 @@ class Contacts:
 
     def _update_or_result(self, length=0, serial_number=0, floating_seconds=None, update_tokens=None,
                           max_missing_updates=None, replaces=None, status=None, message=None, **kwargs):
+        """
+        max_missing_updates is the number of CONSECUTIVE missing data points to store updates to, i.e. once we see this big a gap we stop saving them (they slow down calcs significantly)
+        """
         if max_missing_updates is None:
             max_missing_updates = length
         if not update_tokens:
             update_tokens = []
+        consecutive_missed_updates = 0
         if length:
             for i in range(length):
                 rt = get_replacement_token(replaces, i)
@@ -684,10 +689,11 @@ class Contacts:
                 }  # SEE-OTHER-ADD-FIELDS
                 # If some of the update_tokens are not found, it might be a sync issue,
                 # hold the update tokens till sync comes in
-                if not self._update(ut, updates, floating_seconds, serial_number):
-                    if max_missing_updates:
-                        # TODO-42 rework this to use consecutive missing as the measure not total
-                        max_missing_updates -= 1
+                if self._update(ut, updates, floating_seconds, serial_number):
+                    consecutive_missed_updates = 0
+                else:
+                    consecutive_missed_updates += 1
+                    if consecutive_missed_updates <= max_missing_updates:
                         logger.info("Holding update tokens for later {update_token}:{updates}", update_token=ut, updates=str(updates))
                         self.unused_update_tokens.insert(ut, updates, floating_seconds, serial_number)
                 serial_number += 1
@@ -730,7 +736,7 @@ class Contacts:
                 "id": data.get("id"),
                 "status": status_for_tested,
                 "duration": data.get("duration"),
-                "update_token": update_tokens.pop(),
+                "update_token": update_tokens.pop(0),
                 "message": data.get("message")
             } ] },
             floating_seconds=floating_seconds
@@ -743,7 +749,7 @@ class Contacts:
             replaces=data.get('replaces'),
             status=data.get('status'),
             message=data.get('message'),
-            max_missing_updates=10,  # TODO-MITRA check this, its just a guess for testing, but note we expect updates to propogate before test results
+            max_missing_updates=self.max_missing_updates,
         )
         # TODO-114 maybe return how many of update_tokens used
         return {"status": "ok"}
@@ -753,18 +759,24 @@ class Contacts:
     def status_data_points(self, data, args):
         seed = data.get('seed')
         ret = {}
-        # TODO-114 consider keeping looking if >MAX_DATA_POINTS_PER_TEST
         locations = []
         contact_ids = []
-        for i in range(self.config.getint('MAX_DATA_POINTS_PER_TEST', 256)):
-
+        consecutive_missed_updates = 0
+        i = 0
+        while consecutive_missed_updates < self.max_missing_updates:
             update_token = get_update_token(get_replacement_token(seed, i))
             file_name = self.spatial_dict.update_index.get(update_token)
             if file_name:
                 locations.append(file_name)
-            file_name = self.contact_dict.update_index.get(update_token)
-            if file_name:
-                contact_ids.append(file_name)
+                consecutive_missed_updates = 0
+            else:
+                file_name = self.contact_dict.update_index.get(update_token)
+                if file_name:
+                    contact_ids.append(file_name)
+                    consecutive_missed_updates = 0
+                else:
+                    consecutive_missed_updates += 1
+            i += 1
 
         def get_location_id_data():
             return list(self.spatial_dict.retrieve_json_from_file_names(locations))

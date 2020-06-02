@@ -17,8 +17,6 @@ STATUS_HEALTHY = 4
 
 StatusEnglish = ["Test Positive", "Infected", "Under Investigation", "Unknown", "Healthy"]
 
-MAX_DATA_POINTS_PER_TEST = 256  # Should match in config
-
 ######
 # This file is intended to give a roadmap for functionality needed in the real (app) client.
 
