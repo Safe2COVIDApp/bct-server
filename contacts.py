@@ -83,7 +83,7 @@ class FSBackedThreeLevelDict:
         self.time_and_serial_number_to_file_path_map = {} # TODO-42 scaling issue ?
         self.directory = directory
         self.disk_cache = {}
-        self.disk_cache_retention_time = retain_in_cache*60  # TODO-170 make this configured
+        self.disk_cache_retention_time = retain_in_cache*60
         os.makedirs(directory, 0o770, exist_ok=True)
         self._load()
         # file paths that are pending deletion
@@ -297,7 +297,6 @@ class FSBackedThreeLevelDict:
         return self.get_bottom_level_from_key(key).get(key) or [] # Could be None
 
     def get_bottom_level_from_key(self, key):
-        # TODO-42 optimize just get chunks then get_fpsns_from_key
         chunks = FSBackedThreeLevelDict.get_chunks(key)
         return self.items[chunks[0]][chunks[1]][chunks[2]]
 
@@ -316,6 +315,7 @@ class FSBackedThreeLevelDict:
         since -- unix time 
         until -- unix time
         """
+        # TODO-181 not deleting this fast enough
         for file_path in self.disk_cache:
             (key, floating_seconds, serial_number) = self._get_parts_from_file_path(file_path)
             if current_time() - floating_seconds > self.disk_cache_retention_time:
@@ -730,7 +730,6 @@ class Contacts:
     @register_method(route='/status/result')
     def status_result(self, data, args):
         update_tokens = data.get('update_tokens')
-        # TODO-152 think thru health notification HEALTHY cos on client need to clear out other prior indications that infected. see note in manual contact tracing spec
         floating_seconds = current_time()
         status_for_tested = data.get('status')
         serial_number = self.send_or_sync({
