@@ -594,6 +594,7 @@ class Tracer:
             if id_str in self.id_index:
                 ret.append(self.id_index[id_str])
         return ret
+
     # TODO-MITRA seeing error where duration is a key error maybe fixed now
     def provided_proof(self, proof):
         for res in self.check_provided_proof(proof):
