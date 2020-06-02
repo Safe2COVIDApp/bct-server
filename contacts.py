@@ -844,7 +844,6 @@ class Contacts:
             latest_time = data[number_to_return][0][0]
             return contacts, locations, latest_time
 
-<<<<<<< HEAD
     def _split_bounding_boxes(self, bounding_boxes):
         """
         Split a bounding_box into an array of bounding boxes each BOUNDING_BOX_MINIMUM_DP size (2DP)
