@@ -482,13 +482,6 @@ class SpatialDict(FSBackedThreeLevelDict):
         """
         pass
 
-    @property
-    def bounds(self):
-        # Used by admin/status to see range of locations in play
-        # return self.spatial_index.bounds
-        # TODO-166 - redo this (or eliminate)
-        return (0,0,0,0)
-
     def _intersections(self, bboxs):
         # returns iter [ (floating_seconds, serial) ]
         #logger.warn("XXX _intersections bboxs size={size}", size=len(bboxs))
@@ -910,7 +903,6 @@ class Contacts:
     @register_method(route='/admin/status')
     def admin_status(self, data, args):
         ret = {
-            'bounding_box': self.spatial_dict.bounds,
             'geo_points': len(self.spatial_dict),
             'contacts_count': len(self.contact_dict),
             'unused_updates_count': len(self.unused_update_tokens)
