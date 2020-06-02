@@ -207,26 +207,26 @@ class Client:
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
         for id_obj in matched_ids:
             id_obj['received_at']=current_time()
-        # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
-        if self.pending_test:
-            for i in matched_ids:
-                if i['id'] == self.pending_test['id']:
-                    i['test'] = self.pending_test  # Save the test (includes test_id and pin)
+            # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
+            if self.pending_test:
+                if id_obj['id'] == self.pending_test['id']:
+                    id_obj['test'] = self.pending_test  # Save the test (includes test_id and pin)
+                    # Time of test -> old dailyids (t-1day) -> ids used on those -> remove id_alerts; location_alerts dated < t-1day
+                    ignore_alerts_before =  self.pending_test["time"] - 1 * 24 * 60 * 60  # TODO-152 parameterize this
                     self.pending_test = None  # Clear pending test
                     # Clear out older alerts - TODO-152 this may be more nuanced - clearing out old alerts
-                    self.id_alerts = []
-                    self.location_alerts = []
+                    for alert_list in self.id_alerts, self.location_alerts:
+                        self.id_alerts = [alert_obj for alert_obj in alert_list if alert_obj['received_at'] < ignore_alerts_before]
                     self.local_status = STATUS_HEALTHY  # Note this is correct even if the test is INFECTED, as its the infected test that counts, and there is no LOCAL status event any more
-                    break  # Currently can only be one pending_test so only one test result can match it
         self.id_alerts.extend(matched_ids)  # Add the new ones after we have cleared out alerts no longer valid
 
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
         existing_location_update_tokens = [loc.get('update_token') for loc in self.locations]
-        self.location_alerts.extend(
-            filter(
-                lambda loc: self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens,
-                json_data.get('locations', [])))
+        matching_locations = [loc for loc in json_data.get('locations',[]) if  self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens]
+        for loc in matching_locations:
+            loc['received_at'] = current_time()
+        self.location_alerts.extend(matching_locations)
 
         # Look for any updated data points
         # Find the replaces tokens for both ids and locations - these are the locations this data point replaces
@@ -330,7 +330,7 @@ class Client:
         self.new_daily_id(provider_daily)  # Saves as ued with len=0
         self.new_id()  # Uses the 0-th and increments
         # Record the NEW current_id as a pending test, when we see a notification (either way) we'll clear this
-        self.pending_test = {"id": self.current_id, "provider_id": provider_id, "test_id": test_id, "pin": pin}
+        self.pending_test = {"id": self.current_id, "provider_id": provider_id, "test_id": test_id, "pin": pin, "time": current_time()}
         self.new_daily_id()  # Don't use the special daily id again
         self.new_id()  # Uses the 0-th and increments
 
