@@ -509,9 +509,9 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
     dict.map_over_matching_data
     """
 
-    def __init__(self, directory, subdir):
+    def __init__(self, directory, subdir, **kwargs):
         directory = directory + subdir
-        super().__init__(directory)
+        super().__init__(directory, **kwargs)
 
     def _insert_disk(self, key):  # Not required
         return
