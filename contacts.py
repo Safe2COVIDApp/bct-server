@@ -44,26 +44,28 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # serial = 123 incremented for each point at floating_seconds
 # floating_seconds_and_serial = (floating_seconds, serial) usually passed around together without copying.
 # bounding_box = { maxLat, maxLong, minLat, minLong }
+# bbox = (int lat, int long) #TODO change its name
 
 # == And Some Short cuts ....
 # FSBackedThreeLevelDict.get_chunks(key) -> chunks
-# FSBackedThreeLevelDict.get_directory_name(key) -> dir_name
-# FSBackedThreeLevelDict.get_file_path_from_file_name(file_name) -> file_path
+# FSBackedThreeLevelDict.get_directory_name_from_key(key) -> dir_name
+# FSBackedThreeLevelDict._get_file_path_from_file_name(file_name) -> file_path
 # FSBackedThreeLevelDict._get_file_name_from_file_path(file_path) -> file_name
 # FSBackedThreeLevelDict._get_parts_from_file_name(file_name) -> key, floating_seconds_and_serial_number
 # FSBackedThreeLevelDict._get_parts_from_file_path(file_path) -> key, floating_seconds_and_serial_number
-# DICT.get_blob_from_update_token(update_token) -> blob
+# FSBackedThreeLevelDict._get_key_from_file_name(file_name) -> directory_name
+# DICT._get_blob_from_update_token(update_token) -> blob
 # DICT.get_bottom_level_from_key(key) -> { key: [floating_seconds_and_serial]}
 # DICT.get_floating_seconds_and_serial_number_list_from_key(key) -> [floating_seconds_and_serial] or []
-# DICT.retrieve_json_from_file_path(file_path) -> blob
-# DICT.retrieve_json_from_file_paths([file_path]) -> [blob]
-# DICT.retrieve_json_from_file_name(file_name) -> blob
-# DICT.retrieve_json_from_file_names([file_name]) -> [blob]
+# DICT.get_blob_from_file_path(file_path) -> blob
+# DICT.get_blob_from_file_paths([file_path]) -> [blob]
+# DICT.get_blob_from_file_name(file_name) -> blob
 # DICT.time_and_serial_number_to_file_path_map[floating_seconds_and_serial] -> file_path
-# ContactDict._key_string_from_blob(blob) -> blob['id']
-# SpatialDict._key_string_from_blob(blob) -> key_string
-# SpatialDict._key_tuple_from_blob(blob) -> key_tuple
-# SpatialDict._make_key(key_tuple) -> key_string
+# ContactDict.get_key_from_blob(blob) -> blob['id']
+# SpatialDict.get_key_from_blob(blob) -> key_string
+# SpatialDict._get_lat_long_from_blob(blob) -> key_tuple
+# SpatialDict._get_key_from_lat_long((float lat, float long)) -> key_string
+# SpatialDict.get_key_from_bbox(bbox) -> key
 # key in UpdatesDict -> bool
 # UpdatesDict[key] -> [blob]
 
@@ -78,10 +80,10 @@ class FSBackedThreeLevelDict:
         # { AA: { BB: { CC: AABBCCDEF123: [(floating_seconds, serial)] } } }
         self.items = FSBackedThreeLevelDict.dictionary_factory()
         self.item_count = 0
-        self.update_index = {}
+        self.update_index = {}  # UT: file_path
         # [ (floating_seconds, serial_number)* ] used to order data by time
         self.sorted_list_by_time_and_serial_number = sortedlist(key=lambda key: key[0])
-        # { (floating_seconds, serial_number): relative_file_path }
+        # { (floating_seconds, serial_number): file_path }
         self.time_and_serial_number_to_file_path_map = {}  # TODO-42 scaling issue ?
         self.directory = directory
         self.disk_cache = {}
@@ -127,12 +129,12 @@ class FSBackedThreeLevelDict:
             bottom_level[key] = [floating_seconds_and_serial_number]
         self.item_count += 1
 
-    def _add_to_items_and_indexes(self, key, floating_seconds_and_serial_number, file_name, relative_file_path, update_token):
-        self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = relative_file_path
+    def _add_to_items_and_indexes(self, key, floating_seconds_and_serial_number, file_path, update_token):
+        self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number] = file_path
         self._add_to_items(key, floating_seconds_and_serial_number)
         self.sorted_list_by_time_and_serial_number.add(floating_seconds_and_serial_number)
         if update_token:
-            self.update_index[update_token] = file_name
+            self.update_index[update_token] = file_path
 
     def _should_cache(self, floating_seconds_and_serial_number):
         return (current_time() - floating_seconds_and_serial_number[0]) < self.disk_cache_retention_time
@@ -145,7 +147,7 @@ class FSBackedThreeLevelDict:
             for file_name in files:
                 if file_name.endswith('.data'):
                     key, floating_seconds_and_serial_number = FSBackedThreeLevelDict._get_parts_from_file_name(file_name)
-                    relative_file_path = FSBackedThreeLevelDict.get_file_path_from_file_name(file_name)
+                    file_path = FSBackedThreeLevelDict._get_file_path_from_file_name(file_name)
                     # Note this is expensive, it has to read each file to find update_tokens
                     # - maintaining an index would be better.
 
@@ -159,9 +161,9 @@ class FSBackedThreeLevelDict:
                         raise e  # Put a breakpoint here if seeing this fail
                     if blob:
                         if self._should_cache(floating_seconds_and_serial_number):
-                            self.disk_cache[relative_file_path] = blob
+                            self.disk_cache[file_path] = blob
                         update_token = blob.get('update_token')
-                        self._add_to_items_and_indexes(key, floating_seconds_and_serial_number, file_name, relative_file_path, update_token)
+                        self._add_to_items_and_indexes(key, floating_seconds_and_serial_number, file_path, update_token)
                         self._load_key(key, blob)
         return
 
@@ -198,16 +200,20 @@ class FSBackedThreeLevelDict:
         """
         raise NotImplementedError
 
-    def _key_string_from_blob(self, blob):
+    def get_key_from_blob(self, blob):
         raise NotImplementedError
 
     @staticmethod
     def get_chunks(key):
         return [key[i:i + 2] for i in [0, 2, 4]]
 
+    def get_bottom_level_from_key(self, key):
+        chunks = FSBackedThreeLevelDict.get_chunks(key)
+        return self.items[chunks[0]][chunks[1]][chunks[2]]
+
     @staticmethod
-    def get_directory_name(key):
-        return "/".join([key[i:i + 2] for i in [0, 2, 4]])
+    def get_directory_name_from_key(key):
+        return "/".join(FSBackedThreeLevelDict.get_chunks(key))
 
     def insert(self, key, value, floating_seconds_and_serial_number):
         """
@@ -221,7 +227,7 @@ class FSBackedThreeLevelDict:
         serial_number -- int 
         """
         if key is None:
-            key = self._key_string_from_blob(value)  # On Spatial dict Implicitly does a make_key allowing _insert_disk to work below
+            key = self.get_key_from_blob(value)  # On Spatial dict Implicitly does a make_key allowing _insert_disk to work below
         # we are NOT going to read multiple things from the file system for performance reasons
         # if value in self.map_over_json_blobs(key, None, None):
         #    logger.warning('%s already in data for %s' % (value, key))
@@ -233,35 +239,35 @@ class FSBackedThreeLevelDict:
             if 6 > len(key):
                 raise Exception("Key %s must by at least 6 characters long" % key)
             key = key.upper()
-            dir_name = FSBackedThreeLevelDict.get_directory_name(key)
+            dir_name = FSBackedThreeLevelDict.get_directory_name_from_key(key)
             file_name = FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds_and_serial_number)
-            relative_file_path = '%s/%s' % (dir_name, file_name)
+            file_path = '%s/%s' % (dir_name, file_name)
             # Put in the in-memory data structures
-            self._add_to_items_and_indexes(key, floating_seconds_and_serial_number, file_name, relative_file_path, update_token)
+            self._add_to_items_and_indexes(key, floating_seconds_and_serial_number, file_path, update_token)
             # Now put in the file system
             os.makedirs(self.directory + '/' + dir_name, 0o770, exist_ok=True)
-            logger.info('writing {value} to {directory}', value=value, directory=self.directory + '/' + relative_file_path)
-            self.disk_cache[relative_file_path] = value
-            with open(self.directory + '/' + relative_file_path, 'w') as file:
+            logger.info('writing {value} to {directory}', value=value, directory=self.directory + '/' + file_path)
+            self.disk_cache[file_path] = value
+            with open(self.directory + '/' + file_path, 'w') as file:
                 json.dump(value, file)
-            self._insert_disk(key)   # Depends on _key_string_from_blob above
+            self._insert_disk(key)   # Depends on get_key_from_blob above
         return
 
     def __len__(self):
         return self.item_count
 
-    def retrieve_json_from_file_path(self, file_path):
+    def get_blob_from_file_path(self, file_path):
         res = self.disk_cache.get(file_path)  # Don't use the "in disk_cache" structure as would not be thread safe
         if res:
             return res
         else:
             (key, floating_seconds_and_serial_number) = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
-            blob = self.retrieve_json_from_file_path_disk(file_path)
+            blob = self.get_blob_from_file_path_disk(file_path)
             if self._should_cache(floating_seconds_and_serial_number):
                 self.disk_cache[file_path] = blob
             return blob
 
-    def retrieve_json_from_file_path_disk(self, file_path):  # TODO-177 handle errors gracefully esp JSON ones, though should not happen.
+    def get_blob_from_file_path_disk(self, file_path):  # TODO-177 handle errors gracefully esp JSON ones, though should not happen.
         max_tries = 100
         while True:  # Exits via return or raise
             max_tries -= 1
@@ -271,27 +277,22 @@ class FSBackedThreeLevelDict:
                 logger.error("Bad JSON file at {file_path}", file_path='/'.join([self.directory, file_path]))
                 raise e
             except Exception as e:
-                logger.error("Error in retrieve_json_from_file_path {file_path} {e}", file_path=self.directory + '/' + file_path, e=str(e))
+                logger.error("Error in get_blob_from_file_path_disk {file_path} {e}", file_path=self.directory + '/' + file_path, e=str(e))
                 if max_tries == 0:
                     raise e  # Put a breakpoint here if seeing this fail
                 time.sleep(random.uniform(0, 0.500))   # Wait a little while and try again
 
-    def retrieve_json_from_file_name(self, file_name):
-        return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
+    def get_blob_from_file_name(self, file_name):
+        return self.get_blob_from_file_path(FSBackedThreeLevelDict._get_file_path_from_file_name(file_name))
 
-    def retrieve_json_from_file_paths(self, file_paths):
+    def get_blob_from_file_paths(self, file_paths):
         for file_path in file_paths:
-            yield self.retrieve_json_from_file_path(file_path)
-        return
-
-    def retrieve_json_from_file_names(self, file_names):
-        for file_name in file_names:
-            yield self.retrieve_json_from_file_name(file_name)
+            yield self.get_blob_from_file_path(file_path)
         return
 
     def _delete(self, file_path):
         logger.info("deleting {file_path}", file_path=file_path)
-        blob = self.retrieve_json_from_file_path(file_path)
+        blob = self.get_blob_from_file_path(file_path)
         update_token = blob.get('update_token')
         if update_token:
             del self.update_index[update_token]
@@ -307,10 +308,6 @@ class FSBackedThreeLevelDict:
 
     def get_floating_seconds_and_serial_number_list_from_key(self, key):
         return self.get_bottom_level_from_key(key).get(key) or []  # Could be None
-
-    def get_bottom_level_from_key(self, key):
-        chunks = FSBackedThreeLevelDict.get_chunks(key)
-        return self.items[chunks[0]][chunks[1]][chunks[2]]
 
     def move_data_by_key_to_deletion(self, key):
         bottom_level = self.get_bottom_level_from_key(key)
@@ -336,14 +333,14 @@ class FSBackedThreeLevelDict:
         self.move_data_list_to_deletion(deletion_list)
 
     def move_data_list_to_deletion(self, deletion_list):
-        for item in deletion_list:
-            self.sorted_list_by_time_and_serial_number.remove(item)
-            file_path = self.time_and_serial_number_to_file_path_map[item]
+        for floating_seconds_and_serial_number in deletion_list:
+            self.sorted_list_by_time_and_serial_number.remove(floating_seconds_and_serial_number)
+            file_path = self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number]
             logger.info("moving {file_path} to deletion list", file_path=file_path)
             key, floating_seconds_and_serial_number = FSBackedThreeLevelDict._get_parts_from_file_path(file_path)
-            self.get_floating_seconds_and_serial_number_list_from_key(key).remove(item)
+            self.get_floating_seconds_and_serial_number_list_from_key(key).remove(floating_seconds_and_serial_number)
             self.file_paths_to_delete.append(file_path)
-            del self.time_and_serial_number_to_file_path_map[item]
+            del self.time_and_serial_number_to_file_path_map[floating_seconds_and_serial_number]
             self.item_count -= 1
         return
 
@@ -352,15 +349,18 @@ class FSBackedThreeLevelDict:
         return file_path.split('/')[-1]
 
     @staticmethod
-    def get_file_path_from_file_name(file_name):
-        components = file_name.split(':')
-        dir_name = FSBackedThreeLevelDict.get_directory_name(components[0])
+    def _get_key_from_file_name(file_name):
+        return file_name.split(':')[0]
+
+    @staticmethod
+    def _get_file_path_from_file_name(file_name):
+        dir_name = FSBackedThreeLevelDict.get_directory_name_from_key(FSBackedThreeLevelDict._get_key_from_file_name(file_name))
         return "%s/%s" % (dir_name, file_name)
 
-    def get_blob_from_update_token(self, update_token):
-        file_name = self.update_index.get(update_token)
-        if file_name:
-            return self.retrieve_json_from_file_name(file_name)
+    def _get_blob_from_update_token(self, update_token):
+        file_path = self.update_index.get(update_token)
+        if file_path:
+            return self.get_blob_from_file_path(file_path)
         else:
             return None
 
@@ -373,7 +373,7 @@ class FSBackedThreeLevelDict:
         :param floating_seconds_and_serial_number:          (unix time, int)
         :return:             True if succeeded
         """
-        blob = self.get_blob_from_update_token(updating_token)
+        blob = self._get_blob_from_update_token(updating_token)
         if blob:
             blob.update(updates)
             self.insert(None, blob, floating_seconds_and_serial_number)
@@ -449,7 +449,7 @@ class ContactDict(FSBackedThreeLevelDict):
             yield from self._map_over_matching_contacts(prefix, self.items, since, now)
         return
 
-    def _key_string_from_blob(self, blob):
+    def get_key_from_blob(self, blob):
         return blob.get('id')
 
 
@@ -470,7 +470,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         return
 
     @staticmethod
-    def _key_tuple_from_blob(blob):
+    def _get_lat_long_from_blob(blob):
         return float(blob['lat']), float(blob['long'])
 
     def _load_key(self, key_string, blob):
@@ -485,7 +485,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         lat, long = bbox
         return "%0*X%0*X" % (self.bb_min_dp + 2, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 2, (long + 180 * 10 ** self.bb_min_dp))
 
-    def _make_key(self, key_tuple):
+    def _get_key_from_lat_long(self, key_tuple):
         """ 
         Return key string from lat,long
 
@@ -518,9 +518,9 @@ class SpatialDict(FSBackedThreeLevelDict):
     def list_over_bounding_boxes(self, bboxs, since, now):
         return [floating_time_and_serial for floating_time_and_serial in self._intersections(bboxs) if _good_date(floating_time_and_serial, since, now)]
 
-    def _key_string_from_blob(self, blob):
-        key_tuple = SpatialDict._key_tuple_from_blob(blob)
-        return self._make_key(key_tuple)
+    def get_key_from_blob(self, blob):
+        key_tuple = SpatialDict._get_lat_long_from_blob(blob)
+        return self._get_key_from_lat_long(key_tuple)
 
 
 class SimpleFSBackedDict(FSBackedThreeLevelDict):
@@ -546,21 +546,20 @@ class SimpleFSBackedDict(FSBackedThreeLevelDict):
         returns: [file_path]
         """
         floating_seconds_and_serial_number_list = self.get_floating_seconds_and_serial_number_list_from_key(key)
-        dir_name = FSBackedThreeLevelDict.get_directory_name(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
+        dir_name = FSBackedThreeLevelDict.get_directory_name_from_key(key)  # e.g. ['ab','cd','12'], 'ab/cd/12'
         yield from ["%s/%s" % (dir_name, FSBackedThreeLevelDict._get_file_name_from_parts(key, floating_seconds_and_serial_number)) for floating_seconds_and_serial_number in floating_seconds_and_serial_number_list if _good_date(floating_seconds_and_serial_number, since, now)]
         return
 
     # Key string will be in the file name, but not in the blob
-    def _key_string_from_blob(self, blob):
+    def get_key_from_blob(self, blob):
         raise NotImplementedError
 
     def __contains__(self, key):
-        chunks = FSBackedThreeLevelDict.get_chunks(key)
-        return key in self.items[chunks[0]][chunks[1]][chunks[2]]
+        return key in self.get_bottom_level_from_key(key)
 
     def __getitem__(self, key):
         for file_path in self.map_over_matching_data(key, None, None):
-            yield self.retrieve_json_from_file_path(file_path)
+            yield self.get_blob_from_file_path(file_path)
 
     def __delitem__(self, key):
         self.move_data_by_key_to_deletion(key)
@@ -793,25 +792,26 @@ class Contacts:
         i = 0
         while consecutive_missed_updates < self.max_missing_updates:
             update_token = get_update_token(get_replacement_token(seed, i))
-            file_name = self.spatial_dict.update_index.get(update_token)
-            if file_name:
-                locations.append(file_name)
+            file_path = self.spatial_dict.update_index.get(update_token)
+            if file_path:
+                locations.append(file_path)
                 consecutive_missed_updates = 0
             else:
-                file_name = self.contact_dict.update_index.get(update_token)
-                if file_name:
-                    contact_ids.append(file_name)
+                file_path = self.contact_dict.update_index.get(update_token)
+                if file_path:
+                    contact_ids.append(file_path)
                     consecutive_missed_updates = 0
                 else:
                     consecutive_missed_updates += 1
             i += 1
 
+        # TODO-MITRA should use file-paths so dnt have to go back into data
         def get_location_id_data():
-            return list(self.spatial_dict.retrieve_json_from_file_names(locations))
+            return list(self.spatial_dict.get_blob_from_file_paths(locations))
         ret['locations'] = get_location_id_data
 
         def get_contact_id_data():
-            return list(self.contact_dict.retrieve_json_from_file_names(contact_ids))
+            return list(self.contact_dict.get_blob_from_file_paths(contact_ids))
         ret['contact_ids'] = get_contact_id_data
         return ret
 
@@ -918,14 +918,14 @@ class Contacts:
 
         if 0 != len(contacts_file_path):
             def get_contact_id_data():
-                return list(self.contact_dict.retrieve_json_from_file_paths(contacts_file_path))
+                return list(self.contact_dict.get_blob_from_file_paths(contacts_file_path))
 
             ret['contact_ids'] = get_contact_id_data
         else:
             ret['contact_ids'] = []
         if 0 != len(locations_file_path):
             def get_location_id_data():
-                return list(self.spatial_dict.retrieve_json_from_file_paths(locations_file_path))
+                return list(self.spatial_dict.get_blob_from_file_paths(locations_file_path))
 
             ret['locations'] = get_location_id_data
         else:
