@@ -101,6 +101,7 @@ def unix_time_from_iso(iso_string):
 def iso_time_from_seconds_since_epoch(seconds_since_epoch):
     return datetime.datetime.utcfromtimestamp(seconds_since_epoch).isoformat() + 'Z'
 
+
 def flatten(list_of_iterators):
     # returns iter [ x ] from [ iter [x], iter [x]]
     for it in list_of_iterators:

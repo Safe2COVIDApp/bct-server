@@ -44,7 +44,7 @@ class Client:
         self.bounding_box_maximum_dp = 3  # Do not let the server require resolution requests > ~100
         self.location_time_significant = 1  # Time in seconds we want to consider significant (1 for testing)
         self.expire_locations_seconds = 45*24*60*60  # can test expiration by setting to e.g. 45
-        self.on_test_ignore_before = 1 * 25 * 60 * 60 # If get a test (positive or negative) ignore everything more than 1 days prior to it
+        self.on_test_ignore_before = 1 * 25 * 60 * 60  # If get a test (positive or negative) ignore everything more than 1 days prior to it
 
         # Access generic test functions and data
         self.server = server
@@ -205,13 +205,13 @@ class Client:
         # Note that this can include a test result which might be STATUS_HEALTHY
         matched_ids = [i for i in json_data['contact_ids'] if i.get('id') in self.map_ids_used()]
         for id_obj in matched_ids:
-            id_obj['received_at']=current_time()
+            id_obj['received_at'] = current_time()
             # Scan for a test result and flag the id we will record (via its 'test' field) so that it can effect score calculations
             if self.pending_test:
                 if id_obj['id'] == self.pending_test['id']:
                     id_obj['test'] = self.pending_test  # Save the test (includes test_id and pin)
-                    # Time of test -> old dailyids (t-1day) -> ids used on those -> remove id_alerts; location_alerts dated < t-1day
-                    ignore_alerts_before =  self.pending_test["time"] - self.on_test_ignore_before
+                    # Time of test -> old daily_ids (t-1day) -> ids used on those -> remove id_alerts; location_alerts dated < t-1day
+                    ignore_alerts_before = self.pending_test["time"] - self.on_test_ignore_before
                     self.pending_test = None  # Clear pending test
                     # Clear out older alerts
                     for alert_list in self.id_alerts, self.location_alerts:
@@ -222,7 +222,7 @@ class Client:
         # Filter incoming location updates for those close to where we have been,
         # but exclude any of our own (based on matching update_token
         existing_location_update_tokens = [loc.get('update_token') for loc in self.locations]
-        matching_locations = [loc for loc in json_data.get('locations',[]) if  self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens]
+        matching_locations = [loc for loc in json_data.get('locations', []) if self._location_match(loc) and not loc.get('update_token') in existing_location_update_tokens]
         for loc in matching_locations:
             loc['received_at'] = current_time()
         self.location_alerts.extend(matching_locations)
@@ -497,7 +497,7 @@ class Client:
                     if _chance('chance_of_calling_tracer'):
                         proof_and_seq = self.find_proof_and_seq(self.get_message_data_points()[0]['id'])
                         if not proof_and_seq:
-                            logging.warn("Invalid data point")
+                            logging.warning("Invalid data point")
                         else:
                             tracer.provided_proof(proof_and_seq[0])
                 elif _chance('chance_of_getting_tested'):
@@ -785,7 +785,8 @@ def test_spawn_clients_one_test(server, data, n_clients=5, n_steps=5):
     for i in range(0, n_clients):
         c = Client(server=server, data=data, name="Client-"+str(i))
         clients.append(c)
-        c.simulate_random_walk(int(10 * math.sqrt(n_clients))) # Spread clients around - has to be in first step so don't record initial ~0,~0 position or contacts with people there
+        # Spread clients around - has to be in first step so don't record initial ~0,~0 position or contacts with people there
+        c.simulate_random_walk(int(10 * math.sqrt(n_clients)))
     threads = []
     for c in clients:
         # This next line is the one we want to multithread

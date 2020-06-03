@@ -185,7 +185,7 @@ class Simple(resource.Resource):
         if content_type_headers and ('application/json' in content_type_headers):
             try:
                 data = json.load(request.content)
-            except json.JSONDecodeError as e:
+            except json.JSONDecodeError:
                 logger.error('Passed bad JSON in request: {content}', content=request.content)
                 request.setResponseCode(500)
                 ret = {"error": "Bad JSON in request"}
@@ -240,9 +240,9 @@ class Simple(resource.Resource):
 
 def sync_body(body, remote_server):
     server_name = remote_server  # TODO-119 TODO-67 this will be replaced with a certified name once certificates implemented
-    data = json.loads(body) # TODO-DAN need to handle error (json.JSONDecodeError) here
+    data = json.loads(body)  # TODO-DAN need to handle error (json.JSONDecodeError) here
     logger.info('Response body in sync: {data}, calling send status', data=data)
-    json_data = json.loads(body) # TODO-DAN why do we convert the sync result here as well as 2 lines above and sometimes use json_data and sometimes data below?
+    json_data = json.loads(body)  # TODO-DAN why do we convert the sync result here as well as 2 lines above and sometimes use json_data and sometimes data below?
     for o in json_data.get('contact_ids', []) + json_data.get('locations', []):
         if not o.get('path'):
             o['path'] = []

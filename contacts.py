@@ -8,8 +8,8 @@ import math
 import random
 import time
 from collections import defaultdict
-from lib import get_update_token, get_replacement_token, random_ascii, current_time, unix_time_from_iso, \
-    iso_time_from_seconds_since_epoch, flatten
+from lib import get_update_token, get_replacement_token, current_time, unix_time_from_iso, \
+    iso_time_from_seconds_since_epoch
 from blist import sortedlist
 
 os.umask(0o007)
@@ -67,6 +67,7 @@ init_statistics_fields = ['application_name', 'application_version', 'phone_type
 # key in UpdatesDict -> bool
 # UpdatesDict[key] -> [blob]
 
+
 class FSBackedThreeLevelDict:
 
     @staticmethod
@@ -81,7 +82,7 @@ class FSBackedThreeLevelDict:
         # [ (floating_seconds, serial_number)* ] used to order data by time
         self.sorted_list_by_time_and_serial_number = sortedlist(key=lambda key: key[0])
         # { (floating_seconds, serial_number): relative_file_path }
-        self.time_and_serial_number_to_file_path_map = {} # TODO-42 scaling issue ?
+        self.time_and_serial_number_to_file_path_map = {}  # TODO-42 scaling issue ?
         self.directory = directory
         self.disk_cache = {}
         self.disk_cache_retention_time = retain_in_cache*60
@@ -250,7 +251,7 @@ class FSBackedThreeLevelDict:
         return self.item_count
 
     def retrieve_json_from_file_path(self, file_path):
-        res = self.disk_cache.get(file_path) # Don't use the "in disk_cache" structure as wouldnt be thread safe
+        res = self.disk_cache.get(file_path)  # Don't use the "in disk_cache" structure as would not be thread safe
         if res:
             return res
         else:
@@ -260,20 +261,20 @@ class FSBackedThreeLevelDict:
                 self.disk_cache[file_path] = blob
             return blob
 
-    def retrieve_json_from_file_path_disk(self, file_path): # TODO-177 handle errors gracefully esp JSON ones, though shouldnt happen.
+    def retrieve_json_from_file_path_disk(self, file_path):  # TODO-177 handle errors gracefully esp JSON ones, though should not happen.
         max_tries = 100
         while True:  # Exits via return or raise
             max_tries -= 1
             try:
-                return json.load(open(self.directory + '/' + file_path))
+                return json.load(open('/'.join([self.directory, file_path])))
             except json.JSONDecodeError as e:
-                logger.error("Bad JSON file at {file_path}", file_path='/'.join([root, file_name]))
+                logger.error("Bad JSON file at {file_path}", file_path='/'.join([self.directory, file_path]))
                 raise e
             except Exception as e:
-                logger.error("Error in retrieve_json_from_file_path {file_path} {e}",file_path=self.directory + '/' + file_path, e=str(e))
+                logger.error("Error in retrieve_json_from_file_path {file_path} {e}", file_path=self.directory + '/' + file_path, e=str(e))
                 if max_tries == 0:
                     raise e  # Put a breakpoint here if seeing this fail
-                time.sleep(random.uniform(0,0.500))   # Wait a little while and try again
+                time.sleep(random.uniform(0, 0.500))   # Wait a little while and try again
 
     def retrieve_json_from_file_name(self, file_name):
         return self.retrieve_json_from_file_path(FSBackedThreeLevelDict.get_file_path_from_file_name(file_name))
@@ -305,7 +306,7 @@ class FSBackedThreeLevelDict:
         return
 
     def get_floating_seconds_and_serial_number_list_from_key(self, key):
-        return self.get_bottom_level_from_key(key).get(key) or [] # Could be None
+        return self.get_bottom_level_from_key(key).get(key) or []  # Could be None
 
     def get_bottom_level_from_key(self, key):
         chunks = FSBackedThreeLevelDict.get_chunks(key)
@@ -330,7 +331,7 @@ class FSBackedThreeLevelDict:
         for file_path in self.disk_cache:
             (key, floating_seconds_and_serial_number) = self._get_parts_from_file_path(file_path)
             if not self._should_cache(floating_seconds_and_serial_number):
-                delete(self.disk_cache[file_path])
+                del self.disk_cache[file_path]
         deletion_list = list(self.sorted_list_by_time_and_serial_number_range(since, until, None))
         self.move_data_list_to_deletion(deletion_list)
 
@@ -380,11 +381,9 @@ class FSBackedThreeLevelDict:
         else:
             return False
 
-    #TODO-42
     def _sorted_idx(self, since):
         return self.sorted_list_by_time_and_serial_number.bisect_left((since, 0))
 
-    #TODO-42
     def max_until(self, since, until, maximum_results):
         left = self._sorted_idx(since)
         if left + maximum_results >= len(self.sorted_list_by_time_and_serial_number):
@@ -398,6 +397,7 @@ class FSBackedThreeLevelDict:
         until_idx = self._sorted_idx(until)
         right_idx = min(since_idx + maximum_results, until_idx) if maximum_results else until_idx
         return self.sorted_list_by_time_and_serial_number[since_idx:right_idx]
+
 
 class ContactDict(FSBackedThreeLevelDict):
 
@@ -462,7 +462,6 @@ class SpatialDict(FSBackedThreeLevelDict):
     spatial_index: rtree
     """
 
-
     def __init__(self, directory, bb_min_dp=2, **kwargs):
         logger.info('Loading Spatial dict from disk')
         directory = directory + '/spatial_dict'
@@ -483,7 +482,7 @@ class SpatialDict(FSBackedThreeLevelDict):
         """"
         bbox: (lat, long) as ints * 10**bb_min_do
         """
-        lat,long = bbox
+        lat, long = bbox
         return "%0*X%0*X" % (self.bb_min_dp + 2, (lat + 90 * 10 ** self.bb_min_dp), self.bb_min_dp + 2, (long + 180 * 10 ** self.bb_min_dp))
 
     def _make_key(self, key_tuple):
@@ -499,25 +498,25 @@ class SpatialDict(FSBackedThreeLevelDict):
         key_tuple -- (float lat, float long)
 
         """
-        bbox = [ math.floor(l * 10 ** self.bb_min_dp) for l in key_tuple ]
+        bbox = [math.floor(lat_or_long_float * 10 ** self.bb_min_dp) for lat_or_long_float in key_tuple]
         return self.get_key_from_bbox(bbox)
 
     def _insert_disk(self, key_string):
         """
-        Subclass dependent part of _insert, add to indexes - dont have anymore
+        Subclass dependent part of _insert, add to indexes - do not have anymore
         """
         pass
 
-    def _intersections(self, bboxs): # TODO-42 maybe compress into a single yield
+    def _intersections(self, bboxs):  # TODO-42 maybe compress into a single yield
         # returns iter [ (floating_seconds, serial) ]
-        #logger.warn("XXX _intersections bboxs size={size}", size=len(bboxs))
+        # logger.warn("XXX _intersections bboxs size={size}", size=len(bboxs))
         for bbox in bboxs:
             key = self.get_key_from_bbox(bbox)
             yield from self.get_floating_seconds_and_serial_number_list_from_key(key)
         return
 
     def list_over_bounding_boxes(self, bboxs, since, now):
-        return [floating_time_and_serial for floating_time_and_serial in self._intersections(bboxs) if _good_date(floating_time_and_serial, since, now) ]
+        return [floating_time_and_serial for floating_time_and_serial in self._intersections(bboxs) if _good_date(floating_time_and_serial, since, now)]
 
     def _key_string_from_blob(self, blob):
         key_tuple = SpatialDict._key_tuple_from_blob(blob)
@@ -694,10 +693,11 @@ class Contacts:
         self._update_or_result(floating_seconds_and_serial_number=(current_time(), 0), **data)
         return {"status": "ok"}
 
-    def _update_or_result(self, length=0, floating_seconds_and_serial_number=(0,0), update_tokens=None,
+    def _update_or_result(self, length=0, floating_seconds_and_serial_number=(0, 0), update_tokens=None,
                           max_missing_updates=None, replaces=None, status=None, message=None, **kwargs):
         """
-        max_missing_updates is the number of CONSECUTIVE missing data points to store updates to, i.e. once we see this big a gap we stop saving them (they slow down calcs significantly)
+        max_missing_updates is the number of CONSECUTIVE missing data points to store updates to,
+            i.e. once we see this big a gap we stop saving them (they slow down calculations significantly)
         """
         floating_seconds, serial_number = floating_seconds_and_serial_number
         if max_missing_updates is None:
@@ -761,13 +761,13 @@ class Contacts:
         floating_seconds = current_time()
         status_for_tested = data.get('status')
         serial_number = self.send_or_sync({
-            "contact_ids": [ {
+            "contact_ids": [{
                 "id": data.get("id"),
                 "status": status_for_tested,
                 "duration": data.get("duration"),
                 "update_token": update_tokens.pop(0),
                 "message": data.get("message")
-            } ] },
+            }]},
             floating_seconds=floating_seconds
         )
         self._update_or_result(
@@ -837,13 +837,12 @@ class Contacts:
         locations [(floating_seconds, serial)
         returns [ contacts, locations ] with max length items
         """
-        if (len(contacts) + len(locations) <= number_to_return):
+        if len(contacts) + len(locations) <= number_to_return:
             return contacts, locations, None
         else:
             data = []
             data.extend(map(lambda floating_seconds_and_serial: (floating_seconds_and_serial, self.contact_dict), contacts))
             data.extend(map(lambda floating_seconds_and_serial: (floating_seconds_and_serial, self.spatial_dict), locations))
-            length = len(data)
 
             # create a dict index by either contact_dict or spatial_dict
             lists_to_return = {self.contact_dict: [],  # file_paths
@@ -852,7 +851,6 @@ class Contacts:
             truncated_data = data[0:number_to_return]
 
             for datum in truncated_data:
-                the_dict = datum[1]
                 lists_to_return[datum[1]].append(datum[0])
 
             contacts = lists_to_return[self.contact_dict]   # [(floating_seconds, serial_number)
@@ -872,18 +870,18 @@ class Contacts:
         bboxs = []
         for bounding_box in bounding_boxes:
             bb1 = [int(x * 10 ** self.bb_min_dp) for x in bounding_box]  # Turn into integers at desired resolution of bbox
-            if (bb1[3]<bb1[1]):  # Swap if have min and max lat around other way (check for 180° edge case below)
+            if bb1[3] < bb1[1]:  # Swap if have min and max lat around other way (check for 180° edge case below)
                 s = bb1[3]
                 bb1[3] = bb1[1]
                 bb1[1] = s
             if (bb1[3]-bb1[1]) > (180 * 10 ** self.bb_min_dp):  # Handle bounding boxes around the 180° date-line
-                bboxs.extend([(lat, long) for lat in range(bb1[0],bb1[2]) for long in range(-180 * 10 ** self.bb_min_dp, bb1[1])])
+                bboxs.extend([(lat, long) for lat in range(bb1[0], bb1[2]) for long in range(-180 * 10 ** self.bb_min_dp, bb1[1])])
                 bboxs.extend([(lat, long) for lat in range(bb1[0], bb1[2]) for long in range(bb1[3], 180 * 10 ** self.bb_min_dp)])
             else:
-                bboxs.extend([(lat, long) for lat in range(bb1[0],bb1[2]) for long in range(bb1[1], bb1[3])])  # [(int lat*10^2, int long*10^2)]
+                bboxs.extend([(lat, long) for lat in range(bb1[0], bb1[2]) for long in range(bb1[1], bb1[3])])  # [(int lat*10^2, int long*10^2)]
         return bboxs
 
-    def _scan_or_sync(self, prefixes, bounding_boxes, since, now, maximum_results ):
+    def _scan_or_sync(self, prefixes, bounding_boxes, since, now, maximum_results):
         """
         Common part of /status/sync and /sync
         returns data structure suitable for Response { contact_ids, locations, since, until, more_data }
@@ -907,15 +905,16 @@ class Contacts:
         contacts_floating_seconds_and_serial, locations_floating_seconds_and_serial, latest_time = \
             self._sort_and_truncate(maximum_results, contacts_full, locations_full)
 
-        contacts_file_path = [ self.contact_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
-                               for floating_seconds_and_serial in contacts_floating_seconds_and_serial ]
-        locations_file_path = [ self.spatial_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
-                               for floating_seconds_and_serial in locations_floating_seconds_and_serial ]
+        contacts_file_path = [self.contact_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
+                              for floating_seconds_and_serial in contacts_floating_seconds_and_serial]
+        locations_file_path = [self.spatial_dict.time_and_serial_number_to_file_path_map[floating_seconds_and_serial]
+                               for floating_seconds_and_serial in locations_floating_seconds_and_serial]
 
-        ret = {'since': iso_time_from_seconds_since_epoch(since),
-               'more_data': latest_time is not None,
-                'until': iso_time_from_seconds_since_epoch(latest_time or now)
-              }
+        ret = {
+            'since': iso_time_from_seconds_since_epoch(since),
+            'more_data': latest_time is not None,
+            'until': iso_time_from_seconds_since_epoch(latest_time or now)
+        }
 
         if 0 != len(contacts_file_path):
             def get_contact_id_data():
