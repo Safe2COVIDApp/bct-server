@@ -1,1 +1,1 @@
-web: python server.py --config_file sample_global_config.ini --log_level warn
+worker: python server.py --config_file sample_global_config.ini --log_level warn
