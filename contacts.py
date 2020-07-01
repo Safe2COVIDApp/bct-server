@@ -459,7 +459,6 @@ class SpatialDict(FSBackedThreeLevelDict):
     keys: { (float lat, float long): random10}
     coords: { random10: (float lat, float long) }
     coord_index: { (int lat, int long): [ key_string ] }
-    spatial_index: rtree
     """
 
     def __init__(self, directory, bb_min_dp=2, **kwargs):

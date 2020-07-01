@@ -17,7 +17,7 @@ RUN apt-get -yq install apt-utils gcc
 # RUN ps || apt-get -yq install procps
 
 # Install anything at the OS level, and clean up afterwards
-RUN apt-get -yq install libspatialindex-dev supervisor
+RUN apt-get -yq install supervisor
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 

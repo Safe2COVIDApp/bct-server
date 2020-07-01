@@ -648,11 +648,11 @@ def test_pseudoclient_test_and_trace(server, data):
     tracy = Tracer(server)
     tracy.receive_test(terry.send_test(test_id))
     assert len(tracy.traces[test_id]["contact_ids"]) == 2  # Saw Alice and Bob
-    logging.info('Bob gives Tracey a call')
+    logging.info('Bob gives Tracey a call and provides a proof (which over phone would have a check digit)')
     bob_proof, bob_seq = bob.find_proof_and_seq(bob.get_message_data_points()[0]['id'])
     assert tracy.check_provided_proof(bob_proof)[0]['contact']['id'] in bob.map_ids_used()
     tracy.provided_proof(bob_proof)
-    logging.info('Now its Bobs turn')
+    logging.info('Now its Bobs turn to get tested')
     (provider_id2, test_id2, pin2) = terry.new_test()
     bob.got_tested(provider_id=provider_id2, test_id=test_id2, pin=pin2)
     inc_current_time_for_testing()
