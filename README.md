@@ -65,3 +65,10 @@ log_level can be any of 'debug', 'info', 'warn', 'error', 'critical' and overrid
 * ``curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"2020-04-10T0523Z",  "contact_prefixes":[  "234"]}' http://localhost:8080/status/scan``
 * ``curl -i  http://localhost:8080/sync?since=1970-01-01T0000Z``
 
+
+# Heroku deployment
+
+### Add Procfile
+
+### Add Spatial Index Buildpack
+https://github.com/julienfr112/libspatialindex-buildpack.git
