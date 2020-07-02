@@ -1,4 +1,5 @@
 import argparse
+import os
 
 from twisted.logger import globalLogPublisher, Logger, globalLogBeginner
 from twisted.logger import LogLevelFilterPredicate, LogLevel
@@ -315,7 +316,15 @@ l2 = task.LoopingCall(delete_expired_data)
 l2.start(24*60*60)
 
 site = twserver.Site(Simple())
-port = int(config.get('port', 8080))
+
+ON_HEROKU = os.environ.get('ON_HEROKU')
+
+if ON_HEROKU:
+    # get the heroku port
+    port = int(os.environ.get('PORT', 8080))  # as per OP comments default is 17995
+else:
+    port = int(config.get('port', 8080))
+
 reactor.listenTCP(port, site)
 
 # gack, we can't reset this... we will try at another time
