@@ -70,5 +70,7 @@ log_level can be any of 'debug', 'info', 'warn', 'error', 'critical' and overrid
 
 ### Add Procfile
 
-### Add Spatial Index Buildpack
-https://github.com/julienfr112/libspatialindex-buildpack.git
+### Test with Curl
+
+* `curl -i https://bct-server-staging.herokuapp.com/sync`
+* `curl -i -X POST -H "Content-Type: application/json" -d '{ "since":"2020-04-10T0523Z",  "contact_prefixes":[  "234"]}' https://bct-server-staging.herokuapp.com/status/scan`
