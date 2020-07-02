@@ -20,11 +20,7 @@ https://bit.ly/safe2protocol
 
 # Prerequisites
 
-The geocode support requires the python module Rtree which in turn requires libspatialindex
-
-To install:
-* brew install spatialindex (osx)
-* apt install libspatialindex-dev (ubuntu)
+None - we used to use rtree which required libspatial, but no longer.
 
 # Running on Docker
 * docker run --rm -p 5000:5000 danaronson/safe2server:latest
