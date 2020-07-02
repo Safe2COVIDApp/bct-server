@@ -1,4 +1,3 @@
 blist
 requests
-Rtree
 twisted
