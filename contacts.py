@@ -736,7 +736,7 @@ class Contacts:
             return {
                 'status': 302,
                 'error': "bounding boxes should be a maximum of %s sq km and specified to a resolution of %s decimal places" % (
-                    self.bb_max_size, self.bb_min_dp)
+                    self.bb_max_size * 10000, self.bb_min_dp)
             }
 
         earliest_allowed = self.config.getint('DAYS_OLDEST_DATA_SENT', 21) * 24 * 60 * 60
