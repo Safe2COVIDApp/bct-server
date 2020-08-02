@@ -610,13 +610,13 @@ class Contacts:
         self.config = config
         self.directory_root = config['directory']
         self.testing = ('True' == config.get('testing', ''))
-        self.contact_dict = ContactDict(self.directory_root, retain_in_cache=config.get('retain_in_cache', 120))
+        self.contact_dict = ContactDict(self.directory_root, retain_in_cache=config.getint('retain_in_cache', 120))
         self.bb_min_dp = config.getint('bounding_box_minimum_dp', 2)
-        self.spatial_dict = SpatialDict(self.directory_root, bb_min_dp=self.bb_min_dp, retain_in_cache=config.get('retain_in_cache', 120))
+        self.spatial_dict = SpatialDict(self.directory_root, bb_min_dp=self.bb_min_dp, retain_in_cache=config.getint('retain_in_cache', 120))
         self.bb_max_size = config.getfloat('bounding_box_maximum_size', 4)
         self.location_resolution = config.getint('location_resolution', 4)
-        self.unused_update_tokens = UpdatesDict(self.directory_root, retain_in_cache=config.get('retain_in_cache', 120))
-        self.max_missing_updates = config.get('max_missing_updates', 10)
+        self.unused_update_tokens = UpdatesDict(self.directory_root, retain_in_cache=config.getint('retain_in_cache', 120))
+        self.max_missing_updates = config.getint('max_missing_updates', 10)
         # self.config_apps = config_top['APPS'] # Not used yet as not doing app versioning in config
         # See TODO-76 re saving statistics
         self.statistics = {}
