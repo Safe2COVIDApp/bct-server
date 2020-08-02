@@ -19,7 +19,10 @@ RUN apt-get -yq install apt-utils gcc
 # Install anything at the OS level, and clean up afterwards
 RUN apt-get -yq install supervisor
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-RUN mkdir /data
+
+# Ensure the default sample_docker_config.ini DIRECTORY exists
+# This should be changed based on the DIRECTORY specified for storage in config
+RUN mkdir -p /data
 
 EXPOSE 5000
 
