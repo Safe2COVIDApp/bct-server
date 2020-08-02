@@ -19,7 +19,7 @@ RUN apt-get -yq install apt-utils gcc
 # Install anything at the OS level, and clean up afterwards
 RUN apt-get -yq install supervisor
 RUN rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
-
+RUN mkdir /data
 
 EXPOSE 5000
 
